@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-blue: #292A86;
+  --color-brand-blue-dark: #20216B;
+  --color-brand-blue-deep: #171852;
+  --color-brand-blue-light: #EEF0FF;
+  --color-brand-blue-subtle: #E2E7F5;
+  --color-brand-yellow: #FFF000;
+  --color-brand-yellow-dark: #F5D900;
+  --color-brand-yellow-light: #FFF9B8;
+  --color-brand-white: #FFFFFF;
+  --color-brand-offwhite: #EEF2F8;
+  --color-brand-surface: #E8EDF6;
+  
+  --color-status-green: #16A34A;
+  --color-status-green-light: #DCFCE7;
+  --color-status-red: #DC2626;
+  --color-status-red-light: #FEE2E2;
+  --color-status-amber: #F59E0B;
+  --color-status-amber-light: #FEF3C7;
+}
+
+:root {
+  --brand-blue: #292A86;
+  --brand-blue-dark: #20216B;
+  --brand-blue-deep: #171852;
+  --brand-blue-light: #EEF0FF;
+  --brand-yellow: #FFF000;
+  --brand-yellow-dark: #F5D900;
+  --brand-yellow-light: #FFF9B8;
+  --brand-white: #FFFFFF;
+  --brand-off-white: #EEF2F8;
+
+  --success-green: #16A34A;
+  --warning-amber: #F59E0B;
+  --error-red: #DC2626;
+}
+
+@font-face {
+  font-family: 'Jameel Noori Nastaleeq Kasheeda';
+  src: url('https://cdn.jsdelivr.net/npm/jameel-noori-nastaliq-kasheeda@1.1.0/fonts/JameelNooriNastaliqKasheeda3.woff2') format('woff2'),
+       url('https://unpkg.com/jameel-noori-nastaliq-kasheeda@1.1.0/fonts/JameelNooriNastaliqKasheeda3.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JameelNooriNastaliqKashida';
+  src: url('https://cdn.jsdelivr.net/npm/jameel-noori-nastaliq-kasheeda@1.1.0/fonts/JameelNooriNastaliqKasheeda3.woff2') format('woff2'),
+       url('https://unpkg.com/jameel-noori-nastaliq-kasheeda@1.1.0/fonts/JameelNooriNastaliqKasheeda3.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color: #0F1035;
+    background-color: #EEF2F8;
+    line-height: 1.6;
+  }
+  
+  h1, h2, h3, h4, .font-editorial {
+    font-family: 'Cinzel', 'Lora', Georgia, serif;
+    letter-spacing: -0.01em;
+    color: #0F1035;
+  }
+
+  .font-prose-serif {
+    font-family: 'Lora', Georgia, serif;
+    color: #1E293B;
+  }
+
+  .font-jameel-kasheeda,
+  .font-urdu,
+  .font-urdu-calligraphy,
+  .font-urdu-sharp {
+    font-family: 'Jameel Noori Nastaleeq Kasheeda', 'JameelNooriNastaliqKashida', 'Gulzar', 'Noto Nastaliq Urdu', serif;
+    font-feature-settings: "kern" 1, "liga" 1;
+    line-height: 1.8;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom Dar-e-Arqam Brand Gradient & Component Utilities */
+.btn-brand-primary {
+  background: linear-gradient(135deg, #171852 0%, #20216B 50%, #F5D900 100%);
+  color: #FFFFFF;
+  font-weight: 700;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn-brand-primary:hover {
+  background: linear-gradient(135deg, #20216B 0%, #171852 45%, #FFF000 100%);
+  box-shadow: 0 4px 14px rgba(23, 24, 82, 0.35);
+}
+
+.btn-brand-secondary {
+  background-color: #FFFFFF;
+  color: #171852;
+  font-weight: 700;
+  border: 2px solid #20216B;
+  transition: all 0.2s ease-in-out;
+}
+.btn-brand-secondary:hover {
+  background-color: #EEF0FF;
+  color: #171852;
+  border-color: #171852;
+}
+
+.btn-brand-cta {
+  background: #FFF000;
+  color: #171852;
+  font-weight: 800;
+  border: 2px solid #F5D900;
+  box-shadow: 0 2px 10px rgba(245, 217, 0, 0.3);
+  transition: all 0.2s ease-in-out;
+}
+.btn-brand-cta:hover {
+  background: #F5D900;
+  box-shadow: 0 6px 18px rgba(245, 217, 0, 0.5);
+  transform: translateY(-1px);
+}
+
+.brand-gradient-line {
+  height: 3.5px;
+  background: linear-gradient(90deg, #171852 0%, #20216B 35%, #F5D900 80%, #FFF000 100%);
+  width: 100%;
+}
+
+/* Attractive Neon Glow Utilities for Classic Institutional Identity */
+.neon-glow-gold {
+  box-shadow: 0 0 16px rgba(255, 240, 0, 0.55), 0 0 35px rgba(245, 217, 0, 0.35);
+}
+
+.neon-glow-gold-lg {
+  box-shadow: 0 0 20px rgba(255, 240, 0, 0.7), 0 0 45px rgba(255, 215, 0, 0.45), inset 0 0 14px rgba(255, 240, 0, 0.3);
+}
+
+.neon-glow-gold-pulse {
+  animation: neonPulse 3s ease-in-out infinite;
+}
+
+@keyframes neonPulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(255, 240, 0, 0.5), 0 0 30px rgba(245, 217, 0, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(255, 240, 0, 0.85), 0 0 50px rgba(255, 215, 0, 0.55), inset 0 0 12px rgba(255, 240, 0, 0.35);
+  }
+}
+
+.neon-text-glow {
+  text-shadow: 0 0 8px rgba(255, 240, 0, 0.7), 0 0 18px rgba(212, 175, 55, 0.5);
+}
+
+/* Subtle Smooth Fade-In Animation */
+@keyframes subtleFadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: subtleFadeInUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media print {
+  header, footer, nav, button {
+    display: none !important;
+  }
+  .print-area {
+    display: block !important;
+    width: 100% !important;
+  }
+}

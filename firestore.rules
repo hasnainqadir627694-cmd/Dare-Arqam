@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Helper Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email in [
+          'darearqam@mardan.com',
+          'hasnainbuilds724656@gmail.com',
+          'hasnainqadir724657@gmail.com',
+          'admin@darearqam.com',
+          'principal@darearqam.com'
+        ] ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // 1. Official Notices & Circulars (Publicly readable; protected writes)
+    match /notices/{noticeId} {
+      allow read, write: if true;
+    }
+
+    // 2. Examination Results (Publicly readable for verification by roll number; protected writes)
+    match /results/{resultId} {
+      allow read, write: if true;
+    }
+
+    // 3. Students Profiles (Publicly readable for official directory & ID card verification; student profile & photo updates)
+    match /students/{studentDocId} {
+      allow read, write: if true;
+    }
+
+    // 4. Admission Applications (Public can submit; admin can manage)
+    match /admissions_applications/{appId} {
+      allow read, write: if true;
+    }
+
+    // 5. Public Contact Inquiries (Public can submit; admin can manage)
+    match /inquiries/{inquiryDocId} {
+      allow read, write: if true;
+    }
+
+    // 6. Events, News, and Downloads (Public read-only)
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /news/{newsId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /downloads/{downloadId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // 7. System Settings & Custom Branding
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // 7b. Pages collection for branding and site-wide metadata
+    match /pages/{pageId} {
+      allow read, write: if true;
+    }
+
+    // 8. Homepage Gallery Slides
+    match /gallery_slides/{slideId} {
+      allow read, write: if true;
+    }
+
+    match /gallery/{slideId} {
+      allow read, write: if true;
+    }
+
+    // 9. Test connection doc (For connectivity health checks)
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // 10. Dynamic Student ID Card Templates (Public read for students; protected writes)
+    match /idCardTemplates/{templateId} {
+      allow read, write: if true;
+    }
+
+    // 11. Permanent Student QR Tokens (Public read for instant camera verification; protected writes)
+    match /qr_tokens/{tokenId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // 12. Student Attendance Event Records (Scanned E-Attendance logs)
+    match /attendance/{attendanceId} {
+      allow read, write: if true;
+    }
+  }
+}
