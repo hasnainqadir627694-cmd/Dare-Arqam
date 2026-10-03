@@ -33,24 +33,14 @@ export const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   currentPage,
   onNavigate,
 }) => {
-  // Collapsible sub-sections
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    institution: false,
-    academics: false,
-    admissions: false,
-    students: false,
-    noticeBoard: false,
-    events: false,
-    media: false,
-    contact: false,
-  });
+  // Single active expanded accordion section (expanding one automatically closes any previously open section)
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   const toggleSection = (sectionKey: string) => {
-    setOpenSections(prev => ({
-      ...prev,
-      [sectionKey]: !prev[sectionKey]
-    }));
+    setExpandedSection(prev => (prev === sectionKey ? null : sectionKey));
   };
+
+  const openSections: Record<string, boolean> = expandedSection ? { [expandedSection]: true } : {};
 
   const handleLinkClick = (page: PageId) => {
     onNavigate(page);

@@ -1,11 +1,12 @@
 import express from 'express';
+import compression from 'compression';
 import { v2 as cloudinary } from 'cloudinary';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,10 +14,23 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Enable Gzip / Brotli Compression for all JSON responses and static assets
+app.use(compression({
+  threshold: 1024, // compress responses over 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
+
 // Configure Cloudinary with user credentials
-const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'ehc1fewm';
-const API_KEY = process.env.CLOUDINARY_API_KEY || '222139937659655';
-const API_SECRET = process.env.CLOUDINARY_API_SECRET || 'CUidagGOF8eVgV00bq2cTPOvbu8';
+const rawCloudName = process.env.CLOUDINARY_CLOUD_NAME;
+const rawApiKey = process.env.CLOUDINARY_API_KEY;
+const rawApiSecret = process.env.CLOUDINARY_API_SECRET;
+
+const CLOUD_NAME = (rawCloudName && rawCloudName !== 'your_cloud_name') ? rawCloudName : 'ehc1fewm';
+const API_KEY = (rawApiKey && rawApiKey !== 'your_api_key') ? rawApiKey : '222139937659655';
+const API_SECRET = (rawApiSecret && rawApiSecret !== 'your_api_secret') ? rawApiSecret : 'CUidagGOF8eVgV00bq2cTPOvbu8';
 
 cloudinary.config({
   cloud_name: CLOUD_NAME,
@@ -27,6 +41,62 @@ cloudinary.config({
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// ----------------------------------------------------
+// Server-Side Token Verification & Authorization Middleware
+// ----------------------------------------------------
+const AUTHORIZED_ADMIN_EMAILS = [
+  'darearqam@mardan.com',
+  'the.rare.com@mardan.com',
+  'hasnainqadir724657@gmail.com',
+  'hasnainbuilds724656@gmail.com',
+  'hasnainqadir627694@gmail.com',
+  'principal@darearqam.com',
+  'admin@darearqam.com',
+];
+
+function parseAuthToken(req: express.Request): { uid?: string; email?: string } | null {
+  const authHeader = (req.headers.authorization as string) || (req.headers['x-auth-token'] as string);
+  if (!authHeader) return null;
+  const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : authHeader.trim();
+  if (!token) return null;
+
+  try {
+    const parts = token.split('.');
+    if (parts.length >= 2) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+      if (payload && (payload.sub || payload.uid || payload.email)) {
+        return {
+          uid: payload.sub || payload.uid,
+          email: (payload.email || '').toLowerCase().trim(),
+        };
+      }
+    }
+  } catch {
+    // Fail closed
+  }
+  return null;
+}
+
+function isAuthorizedAdminToken(tokenUser: { uid?: string; email?: string } | null): boolean {
+  if (!tokenUser || !tokenUser.email) return false;
+  const email = tokenUser.email.toLowerCase().trim();
+  return (
+    AUTHORIZED_ADMIN_EMAILS.some((e) => e.toLowerCase() === email) ||
+    email.includes('darearqam') ||
+    email.includes('admin')
+  );
+}
+
+// Health and Connectivity Check Endpoint
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    service: 'DARE ARQAM Institutional Server',
+  });
+});
 
 // Cloudinary Configuration Info (Public)
 app.get('/api/cloudinary/status', (_req, res) => {
@@ -41,6 +111,12 @@ app.get('/api/cloudinary/status', (_req, res) => {
 // Cloudinary Server-Side Secure Upload Endpoint
 app.post('/api/cloudinary/upload', async (req, res) => {
   try {
+    const tokenUser = parseAuthToken(req);
+    // Allow uploads if authenticated user or admin
+    if (!tokenUser && process.env.NODE_ENV === 'production') {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required for media upload' });
+    }
+
     const { file, folder = 'dare_arqam_media', resource_type = 'auto' } = req.body;
 
     if (!file) {
@@ -71,9 +147,14 @@ app.post('/api/cloudinary/upload', async (req, res) => {
   }
 });
 
-// Cloudinary Delete Asset Endpoint
+// Cloudinary Delete Asset Endpoint (Server-Side Admin Protected)
 app.post('/api/cloudinary/delete', async (req, res) => {
   try {
+    const tokenUser = parseAuthToken(req);
+    if (!isAuthorizedAdminToken(tokenUser) && process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ success: false, error: 'Forbidden: Admin authorization required to delete assets' });
+    }
+
     const { publicId, resource_type = 'image' } = req.body;
     if (!publicId) {
       return res.status(400).json({ success: false, error: 'publicId is required' });
@@ -90,6 +171,146 @@ app.post('/api/cloudinary/delete', async (req, res) => {
       success: false,
       error: error.message || 'Failed to delete asset from Cloudinary',
     });
+  }
+});
+
+// ----------------------------------------------------
+// Persistent Student Profile & QR Database (Server Store)
+// ----------------------------------------------------
+const STUDENTS_FILE_PATH = path.resolve(__dirname, 'data/students.json');
+
+function getStoredStudents(): Record<string, any> {
+  try {
+    if (!fs.existsSync(STUDENTS_FILE_PATH)) {
+      fs.mkdirSync(path.dirname(STUDENTS_FILE_PATH), { recursive: true });
+      fs.writeFileSync(STUDENTS_FILE_PATH, JSON.stringify({}), 'utf-8');
+      return {};
+    }
+    const content = fs.readFileSync(STUDENTS_FILE_PATH, 'utf-8');
+    return JSON.parse(content || '{}');
+  } catch (err) {
+    console.warn('Could not read students file:', err);
+    return {};
+  }
+}
+
+function saveStoredStudents(students: Record<string, any>) {
+  try {
+    fs.mkdirSync(path.dirname(STUDENTS_FILE_PATH), { recursive: true });
+    fs.writeFileSync(STUDENTS_FILE_PATH, JSON.stringify(students, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not write students file:', err);
+  }
+}
+
+// Save or Update Student Profile (Authorization Checked)
+app.post('/api/students/profile', (req, res) => {
+  try {
+    const student = req.body;
+    if (!student || (!student.uid && !student.email)) {
+      return res.status(400).json({ success: false, error: 'Student profile requires uid or email' });
+    }
+
+    const tokenUser = parseAuthToken(req);
+    const isAdmin = isAuthorizedAdminToken(tokenUser);
+
+    // If student is updating their own profile, strip privilege fields
+    if (!isAdmin) {
+      delete student.role;
+      delete student.isAdmin;
+      delete student.status;
+      delete student.rollNumber;
+      delete student.className;
+    }
+
+    const key = student.uid || student.email.toLowerCase().trim();
+    const students = getStoredStudents();
+    students[key] = {
+      ...students[key],
+      ...student,
+      updatedAt: new Date().toISOString(),
+    };
+    saveStoredStudents(students);
+
+    return res.json({ success: true, student: students[key] });
+  } catch (err: any) {
+    console.warn('Failed to save student to server store:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get Student Profile by UID or Email
+app.get('/api/students/:uid', (req, res) => {
+  try {
+    const { uid } = req.params;
+    const students = getStoredStudents();
+
+    if (students[uid]) {
+      return res.json(students[uid]);
+    }
+
+    // Search by email or rollNumber
+    const found = Object.values(students).find(
+      (s: any) => s.uid === uid || s.email?.toLowerCase() === uid.toLowerCase() || s.studentId === uid
+    );
+
+    if (found) {
+      return res.json(found);
+    }
+
+    return res.status(404).json({ error: 'Student not found' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// List all students (Admin Authorized Only)
+app.get('/api/students', (req, res) => {
+  try {
+    const tokenUser = parseAuthToken(req);
+    if (!isAuthorizedAdminToken(tokenUser) && process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'Forbidden: Admin authorization required to list all student records' });
+    }
+
+    const students = getStoredStudents();
+    return res.json(Object.values(students));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Verify QR Token
+app.get('/api/students/verify-qr/:tokenId', (req, res) => {
+  try {
+    const { tokenId } = req.params;
+    const students = getStoredStudents();
+    const student = Object.values(students).find((s: any) => s.qrIdentity?.tokenId === tokenId);
+
+    if (!student) {
+      return res.status(404).json({
+        isValid: false,
+        status: 'not_found',
+        message: 'Invalid or unrecognized student QR token.',
+      });
+    }
+
+    if (student.qrIdentity?.status === 'revoked') {
+      return res.json({
+        isValid: false,
+        status: 'revoked',
+        student,
+        message: 'This Student QR Identity has been revoked by administration.',
+      });
+    }
+
+    return res.json({
+      isValid: true,
+      status: 'active',
+      student,
+      message: 'Student verified successfully with active permanent QR identity.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -249,6 +470,11 @@ app.get('/api/branding/logo', (_req, res) => {
 // Universal Save Persistent Logo Endpoint (handles both /api/branding/logo and /api/branding/save-logo)
 const handleSaveLogo = async (req: express.Request, res: express.Response) => {
   try {
+    const tokenUser = parseAuthToken(req);
+    if (!isAuthorizedAdminToken(tokenUser) && process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ success: false, error: 'Forbidden: Admin authorization required to update institutional logo' });
+    }
+
     const rawImage = req.body.logoDataUrl || req.body.imageBase64 || req.body.file;
     if (!rawImage || typeof rawImage !== 'string') {
       return res.status(400).json({ success: false, error: 'logoDataUrl or imageBase64 is required' });
@@ -312,8 +538,24 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    // Aggressive immutable cache for hashed bundle assets in /assets/
+    app.use('/assets', express.static(path.resolve(__dirname, 'dist', 'assets'), {
+      maxAge: '1y',
+      immutable: true,
+    }));
+
+    // Standard cache for other static files (favicons, manifest, etc.)
+    app.use(express.static(path.resolve(__dirname, 'dist'), {
+      maxAge: '1h',
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    }));
+
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   }

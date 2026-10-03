@@ -1,35 +1,56 @@
 import { Notice, StudentResult } from '../types';
 import { NOTICES_DATA, RESULTS_DATABASE } from '../data/mockData';
-import { fetchSingleAppState, saveSingleAppState } from './firebaseService';
+import { 
+  fetchSingleAppState, 
+  saveSingleAppState,
+  fetchNotices,
+  createNotice,
+  updateNotice,
+  deleteNotice,
+  fetchAllResults,
+  adminCreateResult as createFirestoreResult,
+  adminUpdateResult as updateFirestoreResult,
+  adminDeleteResult as deleteFirestoreResult,
+  fetchAllAdmissions,
+  adminUpdateAdmissionStatus as updateFirestoreAdmissionStatus,
+  fetchAllInquiries,
+  adminUpdateInquiryStatus as updateFirestoreInquiryStatus,
+  fetchAllStudents
+} from './firebaseService';
+import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth';
+import { auth, db } from '../lib/firebase';
 
-// Constants
-const PRIMARY_ADMIN_EMAIL = 'darearqam@mardan.com';
-const FALLBACK_ADMIN_EMAILS = [
+export interface AdminRecord {
+  uid: string;
+  email: string;
+  role: 'admin' | 'super_admin' | 'principal' | 'staff' | 'SUPER_ADMIN' | 'ADMIN';
+  status: 'active' | 'inactive' | 'revoked';
+  createdAt: string;
+  updatedAt: string;
+  name?: string;
+}
+
+export const PRIMARY_ADMIN_EMAIL = 'darearqam@mardan.com';
+export const AUTHORIZED_ADMIN_EMAILS = [
   'darearqam@mardan.com',
   'the.rare.com@mardan.com',
   'hasnainqadir724657@gmail.com',
   'hasnainbuilds724656@gmail.com',
+  'hasnainqadir627694@gmail.com',
   'principal@darearqam.com',
   'admin@darearqam.com'
 ];
+export const ADMIN_CREDS_STORAGE_KEY = 'dare_arqam_admin_creds';
+export const ADMIN_AUDIT_LOG_KEY = 'dare_arqam_audit_log';
 
-const VALID_ADMIN_PASSWORDS = [
-  'Hasnainqadir8696',
-  'hasnainqadir8696',
-  'Darearqam123',
-  'darearqam123',
-  'Darearqam2026!',
-  'Principal2026!',
-  'mardan123',
-  'admin123',
-  '123456',
-  'darearqam',
-  'mardan'
-];
-
-const ADMIN_STORAGE_KEY = 'dare_arqam_admin_session';
-const ADMIN_CREDS_STORAGE_KEY = 'dare_arqam_admin_creds';
-const ADMIN_AUDIT_LOG_KEY = 'dare_arqam_audit_log';
+export async function changeAdminPassword(currentPass: string, newPass: string): Promise<{ success: boolean; message: string }> {
+  try {
+    localStorage.setItem(ADMIN_CREDS_STORAGE_KEY, JSON.stringify({ password: newPass, updatedAt: new Date().toISOString() }));
+    adminRecordAuditLog('Password Changed', 'SECURITY', 'Administrator password was updated.');
+  } catch {}
+  return { success: true, message: 'Administrator password record updated.' };
+}
 
 export interface AdminUser {
   email: string;
@@ -347,87 +368,182 @@ export async function getActiveAdminCredentials() {
   };
 }
 
-export async function verifyAdminLogin(email: string, password: string): Promise<{ success: boolean; message: string; user?: AdminUser }> {
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanPass = password.trim();
+/**
+ * Verifies if a given Firebase Auth user is an active authorized administrator in Firestore.
+ */
+export async function checkIsAdmin(user: User | null): Promise<{ isAdmin: boolean; adminRecord: AdminRecord | null }> {
+  if (!user || !user.uid) {
+    return { isAdmin: false, adminRecord: null };
+  }
 
-  let savedCustomPass: string | null = null;
+  const cleanEmail = (user.email || '').toLowerCase().trim();
+
   try {
-    const saved = localStorage.getItem(ADMIN_CREDS_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.password) savedCustomPass = parsed.password;
+    // 1. Check primary `admins/{uid}` collection in Firestore
+    const adminDocRef = doc(db, 'admins', user.uid);
+    const snap = await getDoc(adminDocRef);
+
+    if (snap.exists()) {
+      const data = snap.data() as AdminRecord;
+      const isActive = data.status !== 'inactive' && data.status !== 'revoked';
+      if (isActive) {
+        return { isAdmin: true, adminRecord: { ...data, uid: user.uid, email: cleanEmail } };
+      }
+      return { isAdmin: false, adminRecord: null };
     }
-  } catch {}
 
-  const isKnownAdminEmail = FALLBACK_ADMIN_EMAILS.some(e => e.toLowerCase() === cleanEmail) || 
-                            cleanEmail.includes('darearqam') || 
-                            cleanEmail.includes('mardan') || 
-                            cleanEmail.includes('admin');
+    // 2. Check fallback `adminUsers/{uid}` collection in Firestore
+    const altDocRef = doc(db, 'adminUsers', user.uid);
+    const altSnap = await getDoc(altDocRef);
+    if (altSnap.exists()) {
+      const data = altSnap.data() as AdminRecord;
+      const isActive = data.status !== 'inactive' && data.status !== 'revoked';
+      if (isActive) {
+        return { isAdmin: true, adminRecord: { ...data, uid: user.uid, email: cleanEmail } };
+      }
+      return { isAdmin: false, adminRecord: null };
+    }
 
-  const isValidPassword = 
-    VALID_ADMIN_PASSWORDS.includes(cleanPass) || 
-    (savedCustomPass && cleanPass === savedCustomPass) ||
-    cleanPass.toLowerCase() === 'hasnainqadir8696' ||
-    cleanPass.toLowerCase() === 'darearqam123' ||
-    cleanPass.toLowerCase() === 'principal2026!';
+    // 3. If email matches primary authorized administrative email, seed admins/{uid} document
+    const isAuthorizedEmail = AUTHORIZED_ADMIN_EMAILS.some((e) => e.toLowerCase() === cleanEmail) ||
+      cleanEmail.includes('darearqam');
 
-  if (isKnownAdminEmail) {
-    if (isValidPassword || cleanPass.length >= 4) {
-      const user: AdminUser = {
+    if (isAuthorizedEmail) {
+      const newRecord: AdminRecord = {
+        uid: user.uid,
         email: cleanEmail,
-        name: cleanEmail === PRIMARY_ADMIN_EMAIL ? 'DARE ARQAM Directorate Administrator' : 'Executive Administrator',
-        role: 'SUPER_ADMIN',
-        loggedInAt: new Date().toISOString(),
+        role: 'super_admin',
+        status: 'active',
+        name: cleanEmail === 'darearqam@mardan.com' ? 'DARE ARQAM Directorate Administrator' : 'Executive Administrator',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
+      await setDoc(adminDocRef, newRecord, { merge: true });
+      return { isAdmin: true, adminRecord: newRecord };
+    }
+  } catch (err) {
+    console.warn('checkIsAdmin notice:', err);
+    const isAuthorizedEmail = AUTHORIZED_ADMIN_EMAILS.some((e) => e.toLowerCase() === cleanEmail);
+    if (isAuthorizedEmail) {
+      return {
+        isAdmin: true,
+        adminRecord: {
+          uid: user.uid,
+          email: cleanEmail,
+          role: 'super_admin',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      };
+    }
+  }
+
+  return { isAdmin: false, adminRecord: null };
+}
+
+/**
+ * Real Firebase Authentication & Firestore authorization for Directorate Admins.
+ * Supports auto-provisioning for authorized administrative emails.
+ */
+export async function adminLoginWithFirebase(email: string, pass: string): Promise<{
+  success: boolean;
+  message: string;
+  user?: User;
+  adminRecord?: AdminRecord;
+}> {
+  const cleanEmail = email.trim().toLowerCase();
+  
+  if (!cleanEmail || !pass) {
+    return { success: false, message: 'Please enter both your administrator email and password.' };
+  }
+
+  const isAuthorizedAdminEmail = AUTHORIZED_ADMIN_EMAILS.some((e) => e.toLowerCase() === cleanEmail) ||
+    cleanEmail.includes('darearqam') ||
+    cleanEmail.includes('mardan') ||
+    cleanEmail.includes('admin');
+
+  let authUser: User | null = null;
+
+  // 1. Try signing in with existing Firebase Auth credentials
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+    authUser = userCredential.user;
+  } catch (err: any) {
+    const code = err?.code || '';
+
+    // 2. If user is not found or invalid credentials on an authorized admin email, auto-create/provision the Firebase Auth user
+    if ((code === 'auth/user-not-found' || code === 'auth/invalid-credential') && isAuthorizedAdminEmail) {
       try {
-        localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(user));
-      } catch {}
+        const newCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+        authUser = newCredential.user;
+      } catch (createErr: any) {
+        console.warn('Auto-provision Firebase Auth user notice:', createErr);
+      }
+    }
+  }
 
-      // Record audit log
-      adminRecordAuditLog('Administrator Sign In', 'SECURITY', `Admin ${cleanEmail} authenticated successfully.`);
+  // 3. Check Firestore Admin Role Verification if user authenticated
+  if (authUser) {
+    const authResult = await checkIsAdmin(authUser);
 
+    if (authResult.isAdmin) {
+      adminRecordAuditLog('Administrator Sign In', 'SECURITY', `Admin ${cleanEmail} authenticated via Firebase Auth.`);
       return {
         success: true,
-        message: 'Administrator authentication successful. Welcome to DARE ARQAM Admin Panel.',
-        user,
+        message: 'Administrator authentication successful.',
+        user: authUser,
+        adminRecord: authResult.adminRecord || undefined,
       };
     } else {
+      await firebaseSignOut(auth);
       return {
         success: false,
-        message: 'Invalid password. Please enter your valid administrator password.',
+        message: `Access Denied: The account (${cleanEmail}) does not possess active administrative access privileges.`,
+      };
+    }
+  }
+
+  // 4. Fallback check if user is already signed in on auth.currentUser
+  if (auth.currentUser && (auth.currentUser.email || '').toLowerCase() === cleanEmail) {
+    const authResult = await checkIsAdmin(auth.currentUser);
+    if (authResult.isAdmin) {
+      return {
+        success: true,
+        message: 'Administrator authentication successful.',
+        user: auth.currentUser,
+        adminRecord: authResult.adminRecord || undefined,
       };
     }
   }
 
   return {
     success: false,
-    message: 'Unrecognized administrator email. Use darearqam@mardan.com to login.',
+    message: isAuthorizedAdminEmail
+      ? 'Authentication failed. Please check your password.'
+      : 'Unrecognized administrator email. Use darearqam@mardan.com or your registered admin email.',
   };
 }
 
-export async function changeAdminPassword(currentPass: string, newPass: string): Promise<{ success: boolean; message: string }> {
-  try {
-    localStorage.setItem(ADMIN_CREDS_STORAGE_KEY, JSON.stringify({ password: newPass, updatedAt: new Date().toISOString() }));
-    adminRecordAuditLog('Password Changed', 'SECURITY', 'Administrator password was updated successfully.');
-  } catch {}
-  return { success: true, message: 'Administrator password updated successfully.' };
-}
+// Alias for backwards compatibility
+export const verifyAdminLogin = adminLoginWithFirebase;
 
 export function getCurrentAdminSession(): AdminUser | null {
-  try {
-    const item = localStorage.getItem(ADMIN_STORAGE_KEY);
-    if (!item) return null;
-    return JSON.parse(item);
-  } catch {
-    return null;
+  if (auth.currentUser) {
+    return {
+      email: auth.currentUser.email || 'admin@darearqam.com',
+      name: 'Directorate Administrator',
+      role: 'SUPER_ADMIN',
+      loggedInAt: new Date().toISOString(),
+    };
   }
+  return null;
 }
 
-export function logoutAdminSession(): void {
+export async function logoutAdminSession(): Promise<void> {
   try {
     adminRecordAuditLog('Administrator Logout', 'SECURITY', 'Admin session terminated.');
-    localStorage.removeItem(ADMIN_STORAGE_KEY);
+    await firebaseSignOut(auth);
   } catch {}
 }
 
@@ -450,202 +566,142 @@ export async function adminRecordAuditLog(
   category: AuditLogEntry['category'],
   details: string
 ): Promise<void> {
+  const session = getCurrentAdminSession();
+  const id = `log-${Date.now()}`;
+  const newEntry: AuditLogEntry = {
+    id,
+    action,
+    category,
+    performedBy: session?.email || 'System Administrator',
+    timestamp: new Date().toISOString(),
+    details
+  };
+
   try {
     const current = await adminFetchAuditLog();
-    const session = getCurrentAdminSession();
-    const newEntry: AuditLogEntry = {
-      id: `log-${Date.now()}`,
-      action,
-      category,
-      performedBy: session?.email || 'System Administrator',
-      timestamp: new Date().toISOString(),
-      details
-    };
     const updated = [newEntry, ...current].slice(0, 50); // Keep last 50
     localStorage.setItem(ADMIN_AUDIT_LOG_KEY, JSON.stringify(updated));
   } catch {}
+
+  try {
+    await setDoc(doc(db, 'adminLogs', id), newEntry);
+  } catch {}
 }
 
 // ----------------------------------------------------
-// Notices CRUD with Firestore Persistence
+// Notices CRUD with Firestore Persistence (Single Source of Truth)
 // ----------------------------------------------------
 export async function adminFetchAllNotices(): Promise<Notice[]> {
-  try {
-    const state = await fetchSingleAppState();
-    if (state && state.notices && state.notices.length > 0) {
-      return state.notices;
-    }
-  } catch {}
-  return NOTICES_DATA;
+  return fetchNotices();
 }
 
 export async function adminCreateNotice(data: Partial<Notice>): Promise<void> {
-  const current = await adminFetchAllNotices();
-  const newNotice: Notice = {
-    id: `not-${Date.now()}`,
-    refNo: data.refNo || `DA/DIR/2026-${Math.floor(100 + Math.random() * 900)}`,
-    title: data.title || 'Untitled Notice',
-    category: data.category as any || 'General',
-    date: data.date || new Date().toISOString().split('T')[0],
-    summary: data.summary || '',
-    fullText: data.fullText || data.summary || '',
-    isImportant: !!data.isImportant,
-    issuedBy: data.issuedBy || 'Directorate of Academics & Examination',
-    fileSize: data.fileSize || '140 KB'
-  };
-
-  const updated = [newNotice, ...current];
-  await saveSingleAppState({ notices: updated });
+  const newNotice = await createNotice(data);
   adminRecordAuditLog('Notice Published', 'NOTICES', `Published notice: ${newNotice.title} (${newNotice.refNo})`);
 }
 
 export async function adminUpdateNotice(id: string, data: Partial<Notice>): Promise<void> {
-  const current = await adminFetchAllNotices();
-  const updated = current.map(n => n.id === id ? { ...n, ...data } : n);
-  await saveSingleAppState({ notices: updated });
+  await updateNotice(id, data);
   adminRecordAuditLog('Notice Updated', 'NOTICES', `Updated notice: ${data.title || id}`);
 }
 
 export async function adminDeleteNotice(id: string): Promise<void> {
-  const current = await adminFetchAllNotices();
-  const target = current.find(n => n.id === id);
-  const updated = current.filter(n => n.id !== id);
-  await saveSingleAppState({ notices: updated });
-  adminRecordAuditLog('Notice Deleted', 'NOTICES', `Deleted notice: ${target?.title || id}`);
+  await deleteNotice(id);
+  adminRecordAuditLog('Notice Deleted', 'NOTICES', `Deleted notice ID: ${id}`);
 }
 
 // ----------------------------------------------------
-// Results CRUD with Firestore Persistence
+// Results CRUD with Firestore Persistence (Single Source of Truth)
 // ----------------------------------------------------
 export async function adminFetchAllResults(): Promise<StudentResult[]> {
-  try {
-    const state = await fetchSingleAppState();
-    if (state && (state as any).results && Array.isArray((state as any).results) && (state as any).results.length > 0) {
-      return (state as any).results;
-    }
-  } catch {}
-  return RESULTS_DATABASE;
+  return fetchAllResults();
 }
 
 export async function adminCreateResult(data: Partial<StudentResult>): Promise<void> {
-  const current = await adminFetchAllResults();
-  const newResult: StudentResult = {
-    id: `res-${Date.now()}`,
-    studentId: data.studentId || `DA-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-    rollNumber: data.rollNumber || String(849200 + Math.floor(Math.random() * 500)),
-    studentName: data.studentName || 'Student Name',
-    fatherName: data.fatherName || 'Father Name',
-    className: data.className || 'Class X (Matriculation)',
-    section: data.section || 'Section A (Science)',
-    examination: data.examination || 'Annual Examination',
-    session: data.session || '2025–2026',
-    examDate: data.examDate || 'March 2026',
-    subjects: data.subjects || [
-      { name: 'Holy Quran & Islamic Studies', totalMarks: 50, obtainedMarks: 48, grade: 'A+', status: 'Pass' },
-      { name: 'Urdu Literature', totalMarks: 75, obtainedMarks: 67, grade: 'A', status: 'Pass' },
-      { name: 'English Language', totalMarks: 75, obtainedMarks: 65, grade: 'A', status: 'Pass' },
-      { name: 'Mathematics', totalMarks: 75, obtainedMarks: 70, grade: 'A+', status: 'Pass' },
-      { name: 'General Science / Physics', totalMarks: 75, obtainedMarks: 68, grade: 'A', status: 'Pass' }
-    ],
-    totalMarks: Number(data.totalMarks) || 550,
-    obtainedMarks: Number(data.obtainedMarks) || 480,
-    percentage: Number(data.percentage) || 87.2,
-    overallGrade: data.overallGrade || 'A-One (Outstanding)',
-    resultStatus: (data.resultStatus as any) || 'PASS - FIRST DIVISION',
-    remarks: data.remarks || 'Promoted with academic distinction.'
-  };
-
-  const updated = [newResult, ...current];
-  await saveSingleAppState({ results: updated } as any);
+  const newResult = await createFirestoreResult(data);
   adminRecordAuditLog('Result Published', 'RESULTS', `Published examination result for ${newResult.studentName} (Roll #${newResult.rollNumber})`);
 }
 
 export async function adminUpdateResult(id: string, data: Partial<StudentResult>): Promise<void> {
-  const current = await adminFetchAllResults();
-  const updated = current.map(r => (r.id === id || r.rollNumber === id) ? { ...r, ...data } : r);
-  await saveSingleAppState({ results: updated } as any);
+  await updateFirestoreResult(id, data);
   adminRecordAuditLog('Result Updated', 'RESULTS', `Updated mark sheet for ${data.studentName || id}`);
 }
 
 export async function adminDeleteResult(id: string): Promise<void> {
-  const current = await adminFetchAllResults();
-  const updated = current.filter(r => r.id !== id && r.rollNumber !== id);
-  await saveSingleAppState({ results: updated } as any);
+  await deleteFirestoreResult(id);
   adminRecordAuditLog('Result Deleted', 'RESULTS', `Removed examination record ID: ${id}`);
 }
 
 // ----------------------------------------------------
-// Admissions Management with Firestore Persistence
+// Admissions Management with Firestore Persistence (Single Source of Truth)
 // ----------------------------------------------------
 export async function adminFetchAdmissions(): Promise<AdmissionApplicationRecord[]> {
-  try {
-    const state = await fetchSingleAppState();
-    const admissions = (state as any)?.admissions;
-    if (Array.isArray(admissions) && admissions.length > 0) {
-      return admissions;
-    }
-  } catch {}
-  return INITIAL_ADMISSIONS;
+  const list = await fetchAllAdmissions();
+  return list as unknown as AdmissionApplicationRecord[];
 }
 
 export async function adminUpdateAdmissionStatus(id: string, status: AdmissionApplicationRecord['status'], remarks?: string): Promise<void> {
-  const current = await adminFetchAdmissions();
-  const updated = current.map(a => {
-    if (a.id === id || a.applicationRef === id) {
-      return {
-        ...a,
-        status,
-        remarks: remarks !== undefined ? remarks : a.remarks
-      };
-    }
-    return a;
-  });
-
-  await saveSingleAppState({ admissions: updated } as any);
+  await updateFirestoreAdmissionStatus(id, status, remarks);
   adminRecordAuditLog('Admission Status Changed', 'ADMISSIONS', `Application ${id} status set to ${status}.`);
 }
 
 // ----------------------------------------------------
-// Public Inquiries Management with Firestore Persistence
+// Public Inquiries Management with Firestore Persistence (Single Source of Truth)
 // ----------------------------------------------------
 export async function adminFetchInquiries(): Promise<InquiryRecord[]> {
-  try {
-    const state = await fetchSingleAppState();
-    const inquiries = (state as any)?.inquiries;
-    if (Array.isArray(inquiries) && inquiries.length > 0) {
-      return inquiries;
-    }
-  } catch {}
-  return INITIAL_INQUIRIES;
+  const list = await fetchAllInquiries();
+  return list as unknown as InquiryRecord[];
 }
 
 export async function adminUpdateInquiryStatus(id: string, status: InquiryRecord['status']): Promise<void> {
-  const current = await adminFetchInquiries();
-  const updated = current.map(i => {
-    if (i.id === id || i.inquiryId === id) {
-      return { ...i, status };
-    }
-    return i;
-  });
-
-  await saveSingleAppState({ inquiries: updated } as any);
+  await updateFirestoreInquiryStatus(id, status);
   adminRecordAuditLog('Inquiry Status Updated', 'SYSTEM', `Inquiry ${id} marked as ${status}.`);
 }
 
 // ----------------------------------------------------
-// Students Management
+// Students Management with Firestore Persistence (Single Source of Truth)
 // ----------------------------------------------------
 export async function adminFetchStudents(): Promise<StudentRecord[]> {
   try {
-    const state = await fetchSingleAppState();
-    const students = (state as any)?.studentsList;
-    if (Array.isArray(students) && students.length > 0) {
-      return students;
+    const firestoreStudents = await fetchAllStudents();
+    if (firestoreStudents && firestoreStudents.length > 0) {
+      return firestoreStudents.map((s) => ({
+        id: s.uid,
+        studentId: s.studentId || `DA-2026-${s.rollNumber}`,
+        rollNumber: s.rollNumber,
+        name: s.fullName,
+        fatherName: s.fatherName,
+        className: s.className,
+        section: s.section || 'Section A',
+        dob: s.dob || '2010-01-01',
+        gender: s.gender || 'Not Specified',
+        status: s.status === 'active' ? 'Active' : 'On Leave',
+        attendancePercentage: s.attendancePercentage || 95,
+        contactNumber: s.whatsappNumber,
+        email: s.email,
+        admissionDate: s.createdAt ? s.createdAt.split('T')[0] : '2026-03-01',
+      }));
     }
-  } catch {}
+  } catch (err) {
+    console.debug('adminFetchStudents Firestore notice:', err);
+  }
   return INITIAL_STUDENTS;
 }
 
 export async function adminSaveStudents(students: StudentRecord[]): Promise<void> {
-  await saveSingleAppState({ studentsList: students } as any);
+  for (const s of students) {
+    await setDoc(doc(db, 'students', s.id || s.rollNumber), {
+      uid: s.id,
+      studentId: s.studentId,
+      rollNumber: s.rollNumber,
+      fullName: s.name,
+      fatherName: s.fatherName,
+      className: s.className,
+      section: s.section,
+      whatsappNumber: s.contactNumber,
+      email: s.email,
+      status: s.status.toLowerCase(),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  }
 }

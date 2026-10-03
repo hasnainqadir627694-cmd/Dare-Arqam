@@ -141,7 +141,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
         setTimeout(() => setUploadFeedback(null), 4000);
       }
     } catch (err: any) {
-      console.error('Profile photo upload error:', err);
+      console.warn('Profile photo upload notice:', err);
       try {
         const fallbackUrl = await readFileAsDataUrl(file);
         setProfile((prev) => prev ? { ...prev, profileImageUrl: fallbackUrl } : ({ fullName: 'Student', profileImageUrl: fallbackUrl } as any));
@@ -293,7 +293,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           <button
             type="button"
             onClick={() => window.print()}
-            className="px-3 py-2 text-xs font-semibold text-[#1E293B] hover:text-[#20216B] bg-[#EEF2F8] hover:bg-[#E2E8F0] border border-[#CBD5E1] rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+            className="px-3.5 py-2 text-xs font-semibold text-[#1E293B] hover:text-[#20216B] bg-[#EEF2F8] hover:bg-[#E2E8F0] border border-[#CBD5E1] rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
           >
             <Printer className="w-3.5 h-3.5 text-[#20216B]" />
             <span>Print Student Card</span>
@@ -302,7 +302,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
           <button
             type="button"
             onClick={onLogout}
-            className="px-3.5 py-2 text-xs font-bold text-red-700 hover:text-white hover:bg-red-700 bg-red-50 border border-red-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-2xs"
+            className="px-3.5 py-2 text-xs font-bold text-red-700 hover:text-white hover:bg-red-700 bg-red-50 border border-red-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-xs"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Logout</span>
@@ -340,83 +340,83 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
         </div>
       )}
 
-      {/* 2. Portal Segmented Tab Navigation */}
-      <div className="bg-[#EEF2F8] p-1.5 rounded-xl flex flex-wrap gap-1 border border-[#CBD5E1]">
+      {/* 2. Portal Segmented Tab Navigation (1-Word & Rich Icon Language) */}
+      <div className="bg-[#EEF2F8] p-1.5 rounded-xl flex flex-wrap gap-1.5 border border-[#CBD5E1]">
         <button
           type="button"
           onClick={() => setActiveTab('id-card')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
             activeTab === 'id-card'
-              ? 'bg-[#20216B] text-[#FFF000] shadow-sm'
+              ? 'bg-[#20216B] text-[#FFF000] border border-[#FFF000] shadow-xs'
               : 'text-[#1E293B] hover:text-[#0F1035] hover:bg-[#E2E8F0]'
           }`}
         >
-          <Award className="w-3.5 h-3.5" />
-          <span>Digital Student ID Card</span>
+          <Award className="w-3.5 h-3.5 text-[#FFF000]" />
+          <span>Card</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('profile')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
             activeTab === 'profile'
-              ? 'bg-[#20216B] text-[#FFF000] shadow-sm'
+              ? 'bg-[#20216B] text-[#FFF000] border border-[#FFF000] shadow-xs'
               : 'text-[#1E293B] hover:text-[#0F1035] hover:bg-[#E2E8F0]'
           }`}
         >
-          <User className="w-3.5 h-3.5" />
-          <span>Profile & Dossier</span>
+          <User className="w-3.5 h-3.5 text-[#FFF000]" />
+          <span>Profile</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('academic')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
             activeTab === 'academic'
-              ? 'bg-[#20216B] text-[#FFF000] shadow-sm'
+              ? 'bg-[#20216B] text-[#FFF000] border border-[#FFF000] shadow-xs'
               : 'text-[#1E293B] hover:text-[#0F1035] hover:bg-[#E2E8F0]'
           }`}
         >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Curriculum & Results</span>
+          <BookOpen className="w-3.5 h-3.5 text-[#FFF000]" />
+          <span>Results</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('attendance')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
             activeTab === 'attendance'
-              ? 'bg-[#20216B] text-[#FFF000] shadow-sm'
+              ? 'bg-[#20216B] text-[#FFF000] border border-[#FFF000] shadow-xs'
               : 'text-[#1E293B] hover:text-[#0F1035] hover:bg-[#E2E8F0]'
           }`}
         >
-          <Calendar className="w-3.5 h-3.5" />
-          <span>Attendance Record</span>
+          <Calendar className="w-3.5 h-3.5 text-[#FFF000]" />
+          <span>Attendance</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('notices')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
             activeTab === 'notices'
-              ? 'bg-[#20216B] text-[#FFF000] shadow-sm'
+              ? 'bg-[#20216B] text-[#FFF000] border border-[#FFF000] shadow-xs'
               : 'text-[#1E293B] hover:text-[#0F1035] hover:bg-[#E2E8F0]'
           }`}
         >
-          <FileText className="w-3.5 h-3.5" />
-          <span>Institutional Circulars</span>
+          <FileText className="w-3.5 h-3.5 text-[#FFF000]" />
+          <span>Notices</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('downloads')}
-          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
             activeTab === 'downloads'
-              ? 'bg-[#20216B] text-[#FFF000] shadow-sm'
+              ? 'bg-[#20216B] text-[#FFF000] border border-[#FFF000] shadow-xs'
               : 'text-[#1E293B] hover:text-[#0F1035] hover:bg-[#E2E8F0]'
           }`}
         >
-          <Download className="w-3.5 h-3.5" />
+          <Download className="w-3.5 h-3.5 text-[#FFF000]" />
           <span>Downloads</span>
         </button>
       </div>

@@ -3,48 +3,135 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { PageId, Notice } from './types';
 import { NOTICES_DATA } from './data/mockData';
 import { Header } from './components/Header';
 import { HamburgerMenu } from './components/HamburgerMenu';
 import { Footer } from './components/Footer';
 import { NoticeModal } from './components/NoticeModal';
+import { ViewLoadingSkeleton } from './components/ViewLoadingSkeleton';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
 import { seedInitialDataIfEmpty } from './services/firebaseService';
 import { getCurrentAdminSession } from './services/adminService';
+import { runFirestoreBackendHealthTest } from './services/backendHealthTest';
+import { 
+  parseCurrentLocation, 
+  navigateTo, 
+  subscribeToRoute,
+  PAGE_TO_CANONICAL_PATH 
+} from './services/routerService';
 
-// Views
+// Eagerly loaded primary landing view for instant first paint
 import { HomeView } from './views/HomeView';
-import { InstitutionView } from './views/InstitutionView';
-import { AcademicsView } from './views/AcademicsView';
-import { AdmissionsView } from './views/AdmissionsView';
-import { ResultsView } from './views/ResultsView';
-import { NoticeBoardView } from './views/NoticeBoardView';
-import { EventsView } from './views/EventsView';
-import { MediaView } from './views/MediaView';
-import { ContactView } from './views/ContactView';
-import { LoginView } from './views/LoginView';
-import { RegisterView } from './views/RegisterView';
-import { StudentPortalView } from './views/StudentPortalView';
-import { EmailVerificationScreen } from './components/EmailVerificationScreen';
-import { AdminLoginView } from './views/AdminLoginView';
-import { AdminDashboardView } from './views/AdminDashboardView';
+
+// Route-Level Code Splitting: Lazy-load subpages & heavy administrative consoles on demand
+const InstitutionView = lazy(() => import('./views/InstitutionView').then(m => ({ default: m.InstitutionView })));
+const AcademicsView = lazy(() => import('./views/AcademicsView').then(m => ({ default: m.AcademicsView })));
+const AdmissionsView = lazy(() => import('./views/AdmissionsView').then(m => ({ default: m.AdmissionsView })));
+const ResultsView = lazy(() => import('./views/ResultsView').then(m => ({ default: m.ResultsView })));
+const NoticeBoardView = lazy(() => import('./views/NoticeBoardView').then(m => ({ default: m.NoticeBoardView })));
+const EventsView = lazy(() => import('./views/EventsView').then(m => ({ default: m.EventsView })));
+const MediaView = lazy(() => import('./views/MediaView').then(m => ({ default: m.MediaView })));
+const ContactView = lazy(() => import('./views/ContactView').then(m => ({ default: m.ContactView })));
+const LoginView = lazy(() => import('./views/LoginView').then(m => ({ default: m.LoginView })));
+const RegisterView = lazy(() => import('./views/RegisterView').then(m => ({ default: m.RegisterView })));
+const StudentPortalView = lazy(() => import('./views/StudentPortalView').then(m => ({ default: m.StudentPortalView })));
+const AdminLoginView = lazy(() => import('./views/AdminLoginView').then(m => ({ default: m.AdminLoginView })));
+const AdminDashboardView = lazy(() => import('./views/AdminDashboardView').then(m => ({ default: m.AdminDashboardView })));
+const VerifyStudentView = lazy(() => import('./views/VerifyStudentView').then(m => ({ default: m.VerifyStudentView })));
+
+import { AdminRouteGuard } from './components/AdminRouteGuard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Lock } from 'lucide-react';
 
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<PageId>('home');
-  const [studentAuthMode, setStudentAuthMode] = useState<'choice' | 'login'>('choice');
+  // Parse initial route from browser URL directly
+  const initialRoute = parseCurrentLocation();
+  const [currentPage, setCurrentPage] = useState<PageId>(initialRoute.page);
+  const [studentAuthMode, setStudentAuthMode] = useState<'choice' | 'login'>(initialRoute.authMode || 'choice');
+  const [activeToken, setActiveToken] = useState<string>(initialRoute.token || '');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   // Notice Modal State
   const [activeNoticeModal, setActiveNoticeModal] = useState<Notice | null>(null);
   const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
-  const [selectedNoticeForReader, setSelectedNoticeForReader] = useState<Notice | null>(null);
+  const [selectedNoticeForReader, setSelectedNoticeForReader] = useState<Notice | null>(() => {
+    if (initialRoute.noticeId) {
+      return NOTICES_DATA.find((n) => n.id === initialRoute.noticeId) || null;
+    }
+    return null;
+  });
 
   // Firebase Auth Context
   const { user, studentProfile, logout } = useAuth();
+
+  // Listen to browser Back / Forward buttons (popstate)
+  useEffect(() => {
+    const unsubscribe = subscribeToRoute((route) => {
+      setCurrentPage(route.page);
+      if (route.authMode) {
+        setStudentAuthMode(route.authMode);
+      }
+      if (route.token !== undefined) {
+        setActiveToken(route.token);
+      }
+      if (route.noticeId) {
+        const found = NOTICES_DATA.find((n) => n.id === route.noticeId);
+        if (found) setSelectedNoticeForReader(found);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Intercept relative <a> anchor clicks globally for instant SPA client-side routing
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+
+      const target = (e.target as HTMLElement)?.closest('a');
+      if (!target) return;
+
+      const href = target.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('tel:') || href.startsWith('mailto:') || href.startsWith('javascript:')) {
+        return;
+      }
+
+      if (target.target === '_blank' || target.getAttribute('rel')?.includes('external')) {
+        return;
+      }
+
+      try {
+        const url = new URL(href, window.location.origin);
+        if (url.origin === window.location.origin && !url.pathname.startsWith('/api/')) {
+          e.preventDefault();
+          const parsed = parseCurrentLocation(url.pathname, url.search);
+          handleNavigate(parsed.page, parsed.authMode, {
+            token: parsed.token,
+            noticeId: parsed.noticeId,
+          });
+        }
+      } catch {
+        // Fallback to default browser behavior for non-standard URLs
+      }
+    };
+
+    document.addEventListener('click', handleGlobalClick);
+    return () => document.removeEventListener('click', handleGlobalClick);
+  }, []);
+
+  // Real Firestore Backend Health Verification (writes system/backendHealth to cloud Firestore)
+  useEffect(() => {
+    runFirestoreBackendHealthTest().then((res) => {
+      if (res.success) {
+        console.log('✅ [Firestore Backend Health]: Successfully wrote and verified system/backendHealth in cloud database!', res.data);
+      } else {
+        console.warn('ℹ️ [Firestore Backend Health Status]:', res.errorCode, res.error);
+      }
+    });
+  }, []);
 
   // Seed Firestore data if the project is brand new
   useEffect(() => {
@@ -257,22 +344,41 @@ function AppContent() {
     });
   }, [currentPage]);
 
-  const handleNavigate = (page: PageId, authMode?: 'choice' | 'login') => {
+  const handleNavigate = (
+    page: PageId, 
+    authMode?: 'choice' | 'login',
+    options?: { token?: string; noticeId?: string; replace?: boolean }
+  ) => {
+    const chosenAuthMode = authMode || (page === 'student-login' ? 'login' : 'choice');
     if (authMode) {
       setStudentAuthMode(authMode);
     } else if (page === 'student-login' || page === 'student-portal') {
-      setStudentAuthMode('choice');
+      setStudentAuthMode(chosenAuthMode);
     }
+
+    if (options?.token) {
+      setActiveToken(options.token);
+    }
+
     setCurrentPage(page);
-    // If navigating to notice board, reset individual reader unless specifically routed
-    if (page === 'notices') {
+
+    // If navigating to notice board without a specific noticeId, reset individual reader
+    if (page === 'notices' && !options?.noticeId) {
       setSelectedNoticeForReader(null);
     }
+
+    // Update browser URL cleanly via HTML5 History API
+    navigateTo(page, {
+      authMode: chosenAuthMode,
+      token: options?.token || (page === 'verify-student' ? activeToken : undefined),
+      noticeId: options?.noticeId,
+      replace: options?.replace,
+    });
   };
 
   const handleSelectNoticeFromList = (notice: Notice) => {
     setSelectedNoticeForReader(notice);
-    setCurrentPage('notices');
+    handleNavigate('notices', undefined, { noticeId: notice.id });
   };
 
   const handleOpenNoticeModal = (notice: Notice) => {
@@ -282,7 +388,7 @@ function AppContent() {
 
   const handleModalViewDetails = (notice: Notice) => {
     setSelectedNoticeForReader(notice);
-    setCurrentPage('notices');
+    handleNavigate('notices', undefined, { noticeId: notice.id });
   };
 
   // Determine subview tab mapping
@@ -367,6 +473,15 @@ function AppContent() {
       case 'contact':
         return <ContactView onNavigate={handleNavigate} />;
 
+      // Student QR Identity Verification
+      case 'verify-student':
+        return (
+          <VerifyStudentView
+            initialToken={activeToken}
+            onNavigate={handleNavigate}
+          />
+        );
+
       // Authentication & Student Portal
       case 'student-login':
         // If already logged in, take directly to student portal
@@ -378,7 +493,7 @@ function AppContent() {
               studentProfile={studentProfile}
               onLogout={async () => {
                 await logout();
-                setCurrentPage('home');
+                handleNavigate('home');
               }}
             />
           );
@@ -411,7 +526,7 @@ function AppContent() {
             studentProfile={studentProfile}
             onLogout={async () => {
               await logout();
-              setCurrentPage('home');
+              handleNavigate('home');
             }}
           />
         );
@@ -429,20 +544,13 @@ function AppContent() {
 
       case 'admin-dashboard':
       case 'super-admin-dashboard': {
-        const session = getCurrentAdminSession();
-        if (!session) {
-          return (
-            <AdminLoginView
-              onNavigate={handleNavigate}
-              onLoginSuccess={() => handleNavigate('admin-dashboard')}
-            />
-          );
-        }
         return (
-          <AdminDashboardView
-            onNavigate={handleNavigate}
-            onLogout={() => handleNavigate('home')}
-          />
+          <AdminRouteGuard onNavigate={handleNavigate}>
+            <AdminDashboardView
+              onNavigate={handleNavigate}
+              onLogout={() => handleNavigate('home')}
+            />
+          </AdminRouteGuard>
         );
       }
 
@@ -456,21 +564,17 @@ function AppContent() {
     }
   };
 
-  // If viewing the standalone Directorate Admin Dashboard, render the dedicated executive console directly
-  if (currentPage === 'admin-dashboard') {
-    if (!getCurrentAdminSession()) {
-      return (
-        <AdminLoginView
-          onNavigate={handleNavigate}
-          onLoginSuccess={() => handleNavigate('admin-dashboard')}
-        />
-      );
-    }
+  // If viewing the standalone Directorate Admin Dashboard, render protected via AdminRouteGuard
+  if (currentPage === 'admin-dashboard' || currentPage === 'super-admin-dashboard') {
     return (
-      <AdminDashboardView
-        onNavigate={handleNavigate}
-        onLogout={() => handleNavigate('home')}
-      />
+      <Suspense fallback={<ViewLoadingSkeleton />}>
+        <AdminRouteGuard onNavigate={handleNavigate}>
+          <AdminDashboardView
+            onNavigate={handleNavigate}
+            onLogout={() => handleNavigate('home')}
+          />
+        </AdminRouteGuard>
+      </Suspense>
     );
   }
 
@@ -499,9 +603,11 @@ function AppContent() {
         onViewDetails={handleModalViewDetails}
       />
 
-      {/* 4. Active Page Content */}
+      {/* 4. Active Page Content with Route Suspense */}
       <main className="flex-1">
-        {renderCurrentView()}
+        <Suspense fallback={<ViewLoadingSkeleton />}>
+          {renderCurrentView()}
+        </Suspense>
       </main>
 
       {/* 5. Official Footer */}
@@ -512,10 +618,13 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrandingProvider>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </BrandingProvider>
+    <ErrorBoundary>
+      <BrandingProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </BrandingProvider>
+    </ErrorBoundary>
   );
 }
+

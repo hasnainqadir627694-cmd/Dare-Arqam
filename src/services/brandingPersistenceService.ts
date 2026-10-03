@@ -1,6 +1,15 @@
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../lib/firebase';
+/**
+ * DARE ARQAM Central Branding Persistence Service
+ * Single Source of Truth for Branding Assets:
+ * - Logo and brand imagery stored permanently in Cloudinary CDN
+ * - Metadata and URL references stored in Firestore (pages/branding_settings)
+ * - Browser identity tags (favicon, apple-touch-icon, OpenGraph) updated dynamically
+ */
+
 import { fetchSingleAppState, saveSingleAppState } from './firebaseService';
+import { uploadImageToCloudinary } from './cloudinaryService';
+import { doc, setDoc } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 
 export const LOCAL_STORAGE_LOGO_KEY = 'dare_arqam_custom_logo';
 export const DEFAULT_OFFICIAL_LOGO = '/branding/logo.png';
@@ -62,111 +71,87 @@ export function updateBrowserIdentityTags(logoUrl: string) {
 }
 
 /**
- * Converts a Blob or File to a Base64 string
- */
-export async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-/**
  * Saves the official institutional logo permanently across:
- * 1. Project Static Assets (/public/branding/logo.png, favicons, site icons)
- * 2. Firebase Storage (branding/official_logo.png)
- * 3. Firestore Single App State (settings/single_app_state)
- * 4. Browser DOM Identity (Favicon, Apple-Touch-Icon, Tab icon)
- * 5. Local Storage (Instant Zero-Flash Render)
+ * 1. Cloudinary CDN (dare_arqam_logo)
+ * 2. Firestore Single App State (pages/branding_settings & settings/single_app_state)
+ * 3. Browser DOM Identity (Favicon, Apple-Touch-Icon, Tab icon)
  */
 export async function saveOfficialBrandingLogo(
   imageSource: string | Blob | File
-): Promise<{ success: boolean; url: string; error?: string }> {
+): Promise<{ success: boolean; url: string; publicId?: string; error?: string }> {
   try {
-    let base64Data = '';
-    let blobData: Blob | null = null;
-
-    if (typeof imageSource === 'string') {
-      base64Data = imageSource;
-      if (imageSource.startsWith('data:')) {
-        const res = await fetch(imageSource);
-        blobData = await res.blob();
-      }
-    } else {
-      blobData = imageSource;
-      base64Data = await blobToBase64(imageSource);
-    }
-
     let permanentUrl = DEFAULT_OFFICIAL_LOGO;
+    let publicId = '';
 
-    // Step 1: Save to project public static assets via Server API
+    // Step 1: Upload directly to Cloudinary CDN
+    const cloudRes = await uploadImageToCloudinary(imageSource, 'logo', {
+      customFolder: 'dare_arqam_logo',
+    });
+    if (!cloudRes.success || !cloudRes.url) {
+      throw new Error(cloudRes.error || 'Failed to upload logo to Cloudinary CDN');
+    }
+    permanentUrl = cloudRes.url;
+    publicId = cloudRes.publicId || '';
+
+    // Step 2: Also notify backend /api/branding/logo to update local server icons if possible
     try {
-      const serverRes = await fetch('/api/branding/save-logo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64Data }),
-      });
-      if (serverRes.ok) {
-        const data = await serverRes.json();
-        if (data.localUrl) {
-          permanentUrl = data.localUrl;
-        }
-        if (data.cdnUrl && data.cdnUrl.startsWith('http')) {
-          permanentUrl = data.cdnUrl;
-        }
+      if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+        let idToken = '';
+        try {
+          idToken = (await auth.currentUser?.getIdToken()) || '';
+        } catch {}
+
+        await fetch('/api/branding/logo', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
+          },
+          body: JSON.stringify({
+            logoDataUrl: imageSource,
+            imageBase64: imageSource,
+            metadata: { publicId, cdnUrl: permanentUrl },
+          }),
+        }).catch(() => {});
       }
-    } catch (serverErr) {
-      console.warn('Backend static assets write notice:', serverErr);
-    }
-
-    // Step 2: Save to Firebase Storage as redundant cloud asset
-    if (blobData) {
-      try {
-        const storageRef = ref(storage, 'branding/official_logo.png');
-        const uploadRes = await uploadBytes(storageRef, blobData, {
-          contentType: 'image/png',
-          cacheControl: 'public, max-age=31536000, immutable',
-        });
-        const firestoreStorageUrl = await getDownloadURL(uploadRes.ref);
-        if (firestoreStorageUrl) {
-          permanentUrl = firestoreStorageUrl;
-        }
-      } catch (storageErr) {
-        console.warn('Firebase Storage upload notice (using permanent project asset):', storageErr);
-      }
-    }
-
-    // If permanentUrl is somehow still a giant base64 string, replace with local static URL
-    // so Firestore 1MB document limit is NEVER exceeded
-    if (permanentUrl.startsWith('data:')) {
-      permanentUrl = `/branding/logo.png?v=${Date.now()}`;
-    }
-
-    // Step 3: Save to Firestore Single Document State
-    try {
-      const currentState = (await fetchSingleAppState()) || {};
-      await saveSingleAppState({
-        ...currentState,
-        branding: {
-          ...(currentState.branding || {}),
-          logoUrl: permanentUrl,
-        },
-      });
-    } catch (firestoreErr) {
-      console.warn('Firestore branding state save notice:', firestoreErr);
-    }
-
-    // Step 4: Cache in localStorage
-    try {
-      localStorage.setItem(LOCAL_STORAGE_LOGO_KEY, permanentUrl);
     } catch {}
 
-    // Step 5: Update Browser Tab & Favicons immediately
+    const now = new Date().toISOString();
+
+    // Step 3: Save to Firestore (Single Source of Truth)
+    await setDoc(
+      doc(db, 'pages', 'branding_settings'),
+      {
+        logoUrl: permanentUrl,
+        logoPublicId: publicId,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    await setDoc(
+      doc(db, 'settings', 'branding'),
+      {
+        logoUrl: permanentUrl,
+        logoPublicId: publicId,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    const currentState = (await fetchSingleAppState()) || {};
+    await saveSingleAppState({
+      ...currentState,
+      branding: {
+        ...(currentState.branding || {}),
+        logoUrl: permanentUrl,
+      },
+    });
+
+    // Step 4: Update Browser Tab & Favicons immediately
     updateBrowserIdentityTags(permanentUrl);
 
-    return { success: true, url: permanentUrl };
+    return { success: true, url: permanentUrl, publicId };
   } catch (err: any) {
     console.error('Failed to permanently save official branding logo:', err);
     return {

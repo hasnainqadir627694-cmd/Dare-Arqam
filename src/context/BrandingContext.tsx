@@ -1,11 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { fetchSingleAppState, saveSingleAppState, LeadershipState } from '../services/firebaseService';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { 
+  fetchSingleAppState, 
+  saveSingleAppState, 
+  subscribeSingleAppState, 
+  LeadershipState 
+} from '../services/firebaseService';
 import { 
   saveOfficialBrandingLogo, 
   updateBrowserIdentityTags, 
   DEFAULT_OFFICIAL_LOGO,
   LOCAL_STORAGE_LOGO_KEY 
 } from '../services/brandingPersistenceService';
+import { uploadImageToCloudinary } from '../services/cloudinaryService';
 
 export const DEFAULT_CAMPUS_BANNER = '/src/assets/images/campus_main_building_1790434904126.jpg';
 export const DEFAULT_PRINCIPAL_PHOTO = '/src/assets/images/principal_portrait_1790434918701.jpg';
@@ -198,81 +206,99 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return DEFAULT_SOCIAL_MEDIA_STATE;
   });
 
-  // Sync with Single Document State on boot
+  // Sync with Single Document State on boot and maintain Real-Time Firestore Synchronization
   useEffect(() => {
     let isMounted = true;
 
-    const fetchBrandingFromSingleDoc = async () => {
-      try {
-        const state = await fetchSingleAppState();
-        if (state && isMounted) {
-          if (state.branding) {
-            const b = state.branding;
-            if (b.logoUrl && typeof b.logoUrl === 'string' && b.logoUrl.trim().length > 0) {
-              setLogoUrl(b.logoUrl);
-              localStorage.setItem(LOCAL_STORAGE_LOGO_KEY, b.logoUrl);
-              updateBrowserIdentityTags(b.logoUrl);
-            } else {
-              updateBrowserIdentityTags(DEFAULT_OFFICIAL_LOGO);
-            }
-            if (b.bannerUrl && typeof b.bannerUrl === 'string' && b.bannerUrl.trim().length > 0) {
-              setBannerUrl(b.bannerUrl);
-              localStorage.setItem(LOCAL_STORAGE_BANNER_KEY, b.bannerUrl);
-            }
-            if (b.institutionName && b.institutionName !== 'DARE ARQAM') {
-              setInstitutionName(b.institutionName);
-            }
-            if (b.tagline && b.tagline !== 'Official Educational Institution Portal') {
-              setTagline(b.tagline);
-            }
-          }
+    const applyRemoteState = (state: any) => {
+      if (!state || !isMounted) return;
 
-          if (state.leadership) {
-            const lead = state.leadership;
-            if (lead.principalPhotoUrl !== undefined) {
-              setPrincipalPhotoUrl(lead.principalPhotoUrl || null);
-              if (lead.principalPhotoUrl) {
-                localStorage.setItem(LOCAL_STORAGE_PRINCIPAL_PHOTO_KEY, lead.principalPhotoUrl);
-              } else {
-                localStorage.removeItem(LOCAL_STORAGE_PRINCIPAL_PHOTO_KEY);
-              }
-            }
-            setPrincipalDetails(prev => {
-              const updated = { ...prev, ...lead };
-              try {
-                localStorage.setItem(LOCAL_STORAGE_LEADERSHIP_DETAILS_KEY, JSON.stringify(updated));
-              } catch {}
-              return updated;
-            });
-          }
-
-          if (state.socialMedia) {
-            setSocialMedia(prev => {
-              const merged = { ...DEFAULT_SOCIAL_MEDIA_STATE, ...state.socialMedia };
-              try {
-                localStorage.setItem(LOCAL_STORAGE_SOCIAL_MEDIA_KEY, JSON.stringify(merged));
-              } catch {}
-              return merged;
-            });
-          }
+      if (state.branding) {
+        const b = state.branding;
+        if (b.logoUrl && typeof b.logoUrl === 'string' && b.logoUrl.trim().length > 0) {
+          setLogoUrl(b.logoUrl);
+          updateBrowserIdentityTags(b.logoUrl);
+        } else {
+          updateBrowserIdentityTags(DEFAULT_OFFICIAL_LOGO);
         }
-      } catch (err) {
-        console.warn('Could not sync branding from Firestore single doc:', err);
+        if (b.bannerUrl && typeof b.bannerUrl === 'string' && b.bannerUrl.trim().length > 0) {
+          setBannerUrl(b.bannerUrl);
+        }
+        if (b.institutionName && b.institutionName.trim().length > 0) {
+          setInstitutionName(b.institutionName);
+        }
+        if (b.tagline && b.tagline.trim().length > 0) {
+          setTagline(b.tagline);
+        }
+      }
+
+      if (state.leadership) {
+        const lead = state.leadership;
+        if (lead.principalPhotoUrl !== undefined) {
+          setPrincipalPhotoUrl(lead.principalPhotoUrl || null);
+        }
+        setPrincipalDetails(prev => ({ ...prev, ...lead }));
+      }
+
+      if (state.socialMedia) {
+        setSocialMedia({
+          ...DEFAULT_SOCIAL_MEDIA_STATE,
+          ...state.socialMedia,
+          whatsapp: state.socialMedia.whatsapp || DEFAULT_SOCIAL_MEDIA_STATE.whatsapp,
+        });
       }
     };
 
-    fetchBrandingFromSingleDoc();
+    // 1. Initial fetch
+    fetchSingleAppState().then(applyRemoteState);
+
+    // 2. Active Real-Time Firestore onSnapshot Listener (Single Source of Truth)
+    const unsubscribe = subscribeSingleAppState((state) => {
+      applyRemoteState(state);
+    });
+
+    // 3. Direct Real-Time onSnapshot Listener on pages/branding_settings
+    let unsubBrandingDoc = () => {};
+    try {
+      unsubBrandingDoc = onSnapshot(
+        doc(db, 'pages', 'branding_settings'),
+        (snap) => {
+          if (snap.exists() && isMounted) {
+            const b = snap.data();
+            if (b.logoUrl && typeof b.logoUrl === 'string' && b.logoUrl.trim().length > 0) {
+              setLogoUrl(b.logoUrl);
+              updateBrowserIdentityTags(b.logoUrl);
+            }
+            if (b.bannerUrl && typeof b.bannerUrl === 'string' && b.bannerUrl.trim().length > 0) {
+              setBannerUrl(b.bannerUrl);
+            }
+            if (b.principalPhotoUrl !== undefined) {
+              setPrincipalPhotoUrl(b.principalPhotoUrl || null);
+            }
+            if (b.institutionName && b.institutionName.trim().length > 0) {
+              setInstitutionName(b.institutionName);
+            }
+            if (b.tagline && b.tagline.trim().length > 0) {
+              setTagline(b.tagline);
+            }
+          }
+        },
+        (error) => {
+          console.debug('pages/branding_settings onSnapshot notice:', error?.message || error);
+        }
+      );
+    } catch {}
+
     return () => {
       isMounted = false;
+      unsubscribe();
+      unsubBrandingDoc();
     };
   }, []);
 
   const updateLogo = async (newLogoUrl: string | null) => {
     if (!newLogoUrl) {
       setLogoUrl(DEFAULT_OFFICIAL_LOGO);
-      try {
-        localStorage.removeItem(LOCAL_STORAGE_LOGO_KEY);
-      } catch {}
       updateBrowserIdentityTags(DEFAULT_OFFICIAL_LOGO);
       try {
         const currentState = await fetchSingleAppState() || {};
@@ -290,7 +316,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
-    // Persist via permanent multi-tier service: static project assets + Firebase Storage + Firestore + DOM
+    // Persist via permanent multi-tier service: Firebase Storage + Firestore + DOM
     const res = await saveOfficialBrandingLogo(newLogoUrl);
     const finalUrl = res.url || newLogoUrl;
     setLogoUrl(finalUrl);
@@ -301,29 +327,73 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await updateLogo(null);
   };
 
-  const updateBanner = async (newBannerUrl: string | null) => {
-    setBannerUrl(newBannerUrl);
-    try {
-      if (newBannerUrl) {
-        localStorage.setItem(LOCAL_STORAGE_BANNER_KEY, newBannerUrl);
-      } else {
-        localStorage.removeItem(LOCAL_STORAGE_BANNER_KEY);
-      }
-    } catch {}
+  const updateBanner = async (newBannerSource: string | File | Blob | null) => {
+    if (!newBannerSource) {
+      setBannerUrl(null);
+      try {
+        const currentState = await fetchSingleAppState() || {};
+        await saveSingleAppState({
+          ...currentState,
+          branding: {
+            ...(currentState.branding || {}),
+            logoUrl: logoUrl || '',
+            bannerUrl: '',
+            institutionName,
+            tagline
+          }
+        });
+      } catch {}
+      return;
+    }
 
-    try {
-      const currentState = await fetchSingleAppState() || {};
-      await saveSingleAppState({
-        ...currentState,
-        branding: {
-          ...(currentState.branding || {}),
-          logoUrl: logoUrl || '',
-          bannerUrl: newBannerUrl || '',
-          institutionName,
-          tagline
-        }
-      });
-    } catch {}
+    let permanentBannerUrl = typeof newBannerSource === 'string' ? newBannerSource : '';
+
+    // If source is a File, Blob, or base64 data URL, upload directly to Cloudinary
+    if (
+      newBannerSource instanceof File ||
+      newBannerSource instanceof Blob ||
+      (typeof newBannerSource === 'string' && (newBannerSource.startsWith('data:') || newBannerSource.startsWith('blob:')))
+    ) {
+      const cloudResult = await uploadImageToCloudinary(
+        newBannerSource,
+        'banner',
+        { customFolder: 'dare_arqam_banner' }
+      );
+      if (!cloudResult.success || !cloudResult.url) {
+        throw new Error(cloudResult.error || 'Failed to upload hero banner to Cloudinary CDN');
+      }
+      permanentBannerUrl = cloudResult.url;
+    }
+
+    if (!permanentBannerUrl) {
+      permanentBannerUrl = typeof newBannerSource === 'string' ? newBannerSource : DEFAULT_CAMPUS_BANNER;
+    }
+
+    setBannerUrl(permanentBannerUrl);
+
+    // Save directly to Firestore as Single Source of Truth
+    const now = new Date().toISOString();
+    await setDoc(doc(db, 'pages', 'branding_settings'), {
+      bannerUrl: permanentBannerUrl,
+      updatedAt: now,
+    }, { merge: true });
+
+    await setDoc(doc(db, 'banners', 'primary_hero_banner'), {
+      bannerUrl: permanentBannerUrl,
+      updatedAt: now,
+    }, { merge: true });
+
+    const currentState = await fetchSingleAppState() || {};
+    await saveSingleAppState({
+      ...currentState,
+      branding: {
+        ...(currentState.branding || {}),
+        logoUrl: logoUrl || '',
+        bannerUrl: permanentBannerUrl,
+        institutionName,
+        tagline
+      }
+    });
   };
 
   const resetBanner = async () => {
@@ -333,9 +403,6 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateBrandingDetails = async (name: string, tag: string) => {
     setInstitutionName(name);
     setTagline(tag);
-    try {
-      localStorage.setItem(LOCAL_STORAGE_BRANDING_KEY, JSON.stringify({ name, tagline: tag }));
-    } catch {}
 
     try {
       const currentState = await fetchSingleAppState() || {};
@@ -349,34 +416,70 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           tagline: tag
         }
       });
-    } catch {}
+    } catch (firestoreErr) {
+      console.warn('Firestore branding details sync notice:', firestoreErr);
+    }
   };
 
   // ----------------------------------------------------
-  // Principal Portrait & Details Updates
+  // Principal Portrait & Details Updates with Cloudinary
   // ----------------------------------------------------
-  const updatePrincipalPhoto = async (url: string | null) => {
-    setPrincipalPhotoUrl(url);
-    try {
-      if (url) {
-        localStorage.setItem(LOCAL_STORAGE_PRINCIPAL_PHOTO_KEY, url);
-      } else {
-        localStorage.removeItem(LOCAL_STORAGE_PRINCIPAL_PHOTO_KEY);
-      }
-    } catch {}
-
-    try {
-      const currentState = await fetchSingleAppState() || {};
-      await saveSingleAppState({
-        ...currentState,
-        leadership: {
-          ...(currentState.leadership || {}),
-          principalPhotoUrl: url || '',
-        }
-      });
-    } catch (e) {
-      console.warn('Could not persist principal photo to single document:', e);
+  const updatePrincipalPhoto = async (photoSource: string | File | Blob | null) => {
+    if (!photoSource) {
+      setPrincipalPhotoUrl(null);
+      try {
+        const currentState = await fetchSingleAppState() || {};
+        await saveSingleAppState({
+          ...currentState,
+          leadership: {
+            ...(currentState.leadership || {}),
+            principalPhotoUrl: '',
+          }
+        });
+      } catch {}
+      return;
     }
+
+    let permanentPhotoUrl = typeof photoSource === 'string' ? photoSource : '';
+
+    // If source is a File, Blob, or base64 data URL, upload directly to Cloudinary
+    if (
+      photoSource instanceof File ||
+      photoSource instanceof Blob ||
+      (typeof photoSource === 'string' && (photoSource.startsWith('data:') || photoSource.startsWith('blob:')))
+    ) {
+      const cloudResult = await uploadImageToCloudinary(
+        photoSource,
+        'principal',
+        { customFolder: 'dare_arqam_leadership' }
+      );
+      if (!cloudResult.success || !cloudResult.url) {
+        throw new Error(cloudResult.error || 'Failed to upload principal portrait to Cloudinary CDN');
+      }
+      permanentPhotoUrl = cloudResult.url;
+    }
+
+    if (!permanentPhotoUrl) {
+      permanentPhotoUrl = typeof photoSource === 'string' ? photoSource : DEFAULT_PRINCIPAL_PHOTO;
+    }
+
+    setPrincipalPhotoUrl(permanentPhotoUrl);
+
+    // Save directly to Firestore as Single Source of Truth
+    const now = new Date().toISOString();
+    await setDoc(doc(db, 'pages', 'branding_settings'), {
+      principalPhotoUrl: permanentPhotoUrl,
+      updatedAt: now,
+    }, { merge: true });
+
+    const currentState = await fetchSingleAppState() || {};
+    await saveSingleAppState({
+      ...currentState,
+      leadership: {
+        ...(currentState.leadership || {}),
+        principalPhotoUrl: permanentPhotoUrl,
+      }
+    });
   };
 
   const resetPrincipalPhoto = async () => {

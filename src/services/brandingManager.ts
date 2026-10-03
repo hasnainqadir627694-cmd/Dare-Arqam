@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
+import { uploadImageToCloudinary } from './cloudinaryService';
 
 export const LOCAL_STORAGE_LOGO_KEY = 'app_custom_website_logo';
 export const LEGACY_STORAGE_LOGO_KEY = 'dare_arqam_custom_logo';
@@ -179,13 +180,35 @@ export async function saveWebsiteLogo(
     // 3. Dynamically update browser DOM
     updateBrowserIdentityTags(logoDataUrl);
 
+    let permanentLogoUrl = '';
+    let publicId = '';
+
+    // 4. Primary: Upload directly to Cloudinary CDN
+    try {
+      const cloudRes = await uploadImageToCloudinary(logoDataUrl, 'logo', { customFolder: 'dare_arqam_logo' });
+      if (cloudRes.success && cloudRes.url) {
+        permanentLogoUrl = cloudRes.url;
+        publicId = cloudRes.publicId || '';
+      }
+    } catch (cloudErr) {
+      console.warn('Cloudinary upload notice:', cloudErr);
+    }
+
     let serverUrl = `/branding/logo.png?v=${Date.now()}`;
 
-    // 4. Send to Express backend API to write to public/ and dist/
+    // 5. Send to Express backend API to write local static assets for favicon generation
     try {
+      let idToken = '';
+      try {
+        idToken = (await auth.currentUser?.getIdToken()) || '';
+      } catch {}
+
       const response = await fetch('/api/branding/logo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
+        },
         body: JSON.stringify({
           logoDataUrl,
           imageBase64: logoDataUrl,
@@ -205,13 +228,14 @@ export async function saveWebsiteLogo(
       console.warn('Backend /api/branding/logo write notice:', backendErr);
     }
 
-    // 5. Persist to Firestore: collection 'pages' document 'branding_settings'
+    const finalUrl = permanentLogoUrl || serverUrl;
+
+    // 6. Persist to Firestore: collection 'pages' document 'branding_settings' (Single Source of Truth)
     try {
-      // Use clean serverUrl to avoid overflowing 1MB Firestore document limits with large base64
       await setDoc(
         doc(db, 'pages', 'branding_settings'),
         {
-          logoUrl: serverUrl,
+          logoUrl: finalUrl,
           updatedAt: new Date().toISOString(),
           dimensions: { width: 512, height: 512 },
           ...metadata,
@@ -224,7 +248,7 @@ export async function saveWebsiteLogo(
         doc(db, 'settings', 'single_app_state'),
         {
           branding: {
-            logoUrl: serverUrl,
+            logoUrl: finalUrl,
           },
           updatedAt: new Date().toISOString(),
         },
@@ -234,7 +258,7 @@ export async function saveWebsiteLogo(
       console.warn('Firestore branding_settings save notice:', firestoreErr);
     }
 
-    return { success: true, url: serverUrl };
+    return { success: true, url: finalUrl };
   } catch (err: any) {
     console.error('saveWebsiteLogo error:', err);
     return { success: false, url: DEFAULT_OFFICIAL_LOGO, error: err?.message || 'Failed to save logo' };

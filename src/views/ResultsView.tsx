@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { PageId, StudentResult } from '../types';
-import { RESULTS_DATABASE, INSTITUTION_INFO } from '../data/mockData';
+import { INSTITUTION_INFO } from '../data/mockData';
 import { Emblem } from '../components/Emblem';
-import { Search, Printer, CheckCircle2, AlertCircle, Award, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Search, Printer, CheckCircle2, AlertCircle, Award, ArrowLeft, ShieldCheck, RefreshCw } from 'lucide-react';
 import { fetchResultByRollOrId } from '../services/firebaseService';
 
 interface ResultsViewProps {
@@ -36,37 +36,18 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onNavigate }) => {
         setCurrentResult(found);
         setHasSearched(true);
       } else {
-        // Fallback to local
-        const local = RESULTS_DATABASE.find(
-          (r) =>
-            r.rollNumber.toLowerCase() === query.toLowerCase() ||
-            r.studentId.toLowerCase() === query.toLowerCase()
-        );
-        if (local) {
-          setCurrentResult(local);
-          setHasSearched(true);
-        } else {
-          setCurrentResult(null);
-          setErrorMessage(
-            `No examination record found for Roll Number / Student ID "${searchQuery}". Please verify the digits or contact the Controller of Examinations.`
-          );
-        }
-      }
-    } catch {
-      const local = RESULTS_DATABASE.find(
-        (r) =>
-          r.rollNumber.toLowerCase() === query.toLowerCase() ||
-          r.studentId.toLowerCase() === query.toLowerCase()
-      );
-      if (local) {
-        setCurrentResult(local);
-        setHasSearched(true);
-      } else {
         setCurrentResult(null);
+        setHasSearched(true);
         setErrorMessage(
-          `No examination record found for Roll Number / Student ID "${searchQuery}". Please verify the digits or contact the Controller of Examinations.`
+          `No examination record found in cloud database for Roll Number / Student ID "${query}". Please verify the digits or contact the Controller of Examinations.`
         );
       }
+    } catch (err: any) {
+      setCurrentResult(null);
+      setHasSearched(true);
+      setErrorMessage(
+        err?.message || `Could not retrieve examination record for "${query}". Please check your internet connection.`
+      );
     } finally {
       setIsSearching(false);
     }
@@ -168,10 +149,19 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onNavigate }) => {
             <button
               type="submit"
               disabled={isSearching}
-              className="px-7 py-3 text-xs font-extrabold text-white bg-gradient-to-r from-[#171852] to-[#20216B] hover:from-[#20216B] hover:to-[#292A86] border-2 border-[#F5D900]/50 rounded-lg transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-95"
+              className="px-6 py-2.5 text-xs font-extrabold text-[#171852] bg-[#FFF000] hover:bg-[#F5D900] border-2 border-[#F5D900] rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-95"
             >
-              <Search className="w-4 h-4 text-[#FFF000]" />
-              <span>{isSearching ? 'Verifying Records...' : 'Verify & View Result'}</span>
+              {isSearching ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-[#171852]" />
+                  <span>Verifying...</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4 text-[#171852]" />
+                  <span>Verify</span>
+                </>
+              )}
             </button>
           </div>
         </form>
@@ -209,10 +199,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ onNavigate }) => {
           <div className="flex items-center justify-end">
             <button
               onClick={() => window.print()}
-              className="px-5 py-2.5 text-xs font-bold text-[#171852] bg-white hover:bg-[#EEF0FF] border-2 border-[#20216B] rounded-lg transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
+              className="px-5 py-2.5 text-xs font-bold text-[#171852] bg-white hover:bg-[#EEF0FF] border-2 border-[#20216B] rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
             >
               <Printer className="w-4 h-4 text-[#20216B]" />
-              <span>Print Official Marksheet</span>
+              <span>Print</span>
             </button>
           </div>
 

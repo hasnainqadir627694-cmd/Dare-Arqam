@@ -16,10 +16,9 @@ import {
   where, 
   onSnapshot 
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { IdCardTemplate, TemplateFieldConfig } from '../types';
-import { uploadToCloudinary } from './cloudinaryService';
+import { uploadImageToCloudinary, uploadToCloudinary } from './cloudinaryService';
 
 const TEMPLATES_COLLECTION = 'idCardTemplates';
 const ACTIVE_TEMPLATE_CACHE_KEY = 'dare_arqam_active_id_template';
@@ -365,6 +364,26 @@ export const DEFAULT_TEMPLATE: IdCardTemplate = {
 
 
 /**
+ * Recursively removes keys with `undefined` values from an object
+ * to prevent Firestore setDoc/updateDoc errors ("Unsupported field value: undefined").
+ */
+export function cleanUndefinedForFirestore<T>(obj: T): T {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(cleanUndefinedForFirestore) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      cleaned[key] = typeof value === 'object' && value !== null ? cleanUndefinedForFirestore(value) : value;
+    }
+  }
+  return cleaned as T;
+}
+
+/**
  * Normalizes any template document from Firestore or Cache to ensure full dual-sided fields exist.
  */
 export function normalizeTemplate(t: Partial<IdCardTemplate>): IdCardTemplate {
@@ -376,14 +395,14 @@ export function normalizeTemplate(t: Partial<IdCardTemplate>): IdCardTemplate {
   const sourceFields = t.frontFields || t.fields || defaultFields;
   const sourceQr = t.backFields?.qrCode || DEFAULT_TEMPLATE.backFields!.qrCode;
 
-  return {
+  const norm: IdCardTemplate = {
     id: t.id || `tpl_${Date.now()}`,
     name: t.name || 'Custom ID Card Template',
     templateUrl: frontUrl,
     frontTemplateUrl: frontUrl,
     backTemplateUrl: backUrl,
-    storagePath: t.storagePath,
-    backStoragePath: t.backStoragePath,
+    ...(t.storagePath ? { storagePath: t.storagePath } : {}),
+    ...(t.backStoragePath ? { backStoragePath: t.backStoragePath } : {}),
     aspectRatio: aspect,
     originalWidth: t.originalWidth || 600,
     originalHeight: t.originalHeight || 960,
@@ -420,13 +439,35 @@ export function normalizeTemplate(t: Partial<IdCardTemplate>): IdCardTemplate {
       },
     },
   };
+
+  return cleanUndefinedForFirestore(norm);
 }
 
 /**
- * Retrieves the currently active ID Card Template from Firestore.
+ * Retrieves the currently active ID Card Template from Firestore settings and idCardTemplates collection.
  * Falls back to localStorage and finally to DEFAULT_TEMPLATE.
  */
 export async function getActiveTemplate(): Promise<IdCardTemplate> {
+  // 1. Try single app config pointer in settings/id_card_config
+  try {
+    const configSnap = await getDoc(doc(db, 'settings', 'id_card_config'));
+    if (configSnap.exists()) {
+      const data = configSnap.data();
+      if (data?.activeTemplate) {
+        const active = normalizeTemplate(data.activeTemplate);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(active));
+          } catch {}
+        }
+        return active;
+      }
+    }
+  } catch (err) {
+    console.debug('Firestore id_card_config getActiveTemplate notice:', err);
+  }
+
+  // 2. Try collection query where isActive == true
   try {
     const q = query(collection(db, TEMPLATES_COLLECTION), where('isActive', '==', true));
     const snap = await getDocs(q);
@@ -445,17 +486,8 @@ export async function getActiveTemplate(): Promise<IdCardTemplate> {
     console.debug('Firestore getActiveTemplate notice:', err);
   }
 
-  // Fallback to local storage
-  if (typeof window !== 'undefined') {
-    try {
-      const cached = localStorage.getItem(ACTIVE_TEMPLATE_CACHE_KEY);
-      if (cached) {
-        return normalizeTemplate(JSON.parse(cached));
-      }
-    } catch {}
-  }
-
-  return DEFAULT_TEMPLATE;
+  // 3. Fallback to local storage
+  return getCachedActiveTemplateSync();
 }
 
 /**
@@ -475,63 +507,9 @@ export function getCachedActiveTemplateSync(): IdCardTemplate {
 }
 
 /**
- * Subscribes to real-time changes of the active template.
+ * Synchronously retrieves cached template list from localStorage.
  */
-export function subscribeActiveTemplate(callback: (template: IdCardTemplate) => void): () => void {
-  // Fire immediate callback with cached/default
-  getActiveTemplate().then(callback);
-
-  try {
-    const q = query(collection(db, TEMPLATES_COLLECTION), where('isActive', '==', true));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        if (!snap.empty) {
-          const docData = snap.docs[0].data() as IdCardTemplate;
-          const active = normalizeTemplate({ ...docData, id: snap.docs[0].id });
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(active));
-            } catch {}
-          }
-          callback(active);
-        } else {
-          callback(DEFAULT_TEMPLATE);
-        }
-      },
-      (err) => {
-        console.debug('subscribeActiveTemplate error:', err);
-      }
-    );
-    return unsub;
-  } catch {
-    return () => {};
-  }
-}
-
-/**
- * Fetches all templates from Firestore.
- */
-export async function getAllTemplates(): Promise<IdCardTemplate[]> {
-  try {
-    const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
-    if (!snap.empty) {
-      const templates: IdCardTemplate[] = [];
-      snap.forEach((d) => {
-        templates.push(normalizeTemplate({ ...(d.data() as IdCardTemplate), id: d.id }));
-      });
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(templates));
-        } catch {}
-      }
-      return templates;
-    }
-  } catch (err) {
-    console.debug('getAllTemplates fallback:', err);
-  }
-
-  // Fallback to local cache
+export function getCachedAllTemplatesSync(): IdCardTemplate[] {
   if (typeof window !== 'undefined') {
     try {
       const cached = localStorage.getItem(ALL_TEMPLATES_CACHE_KEY);
@@ -541,8 +519,282 @@ export async function getAllTemplates(): Promise<IdCardTemplate[]> {
       }
     } catch {}
   }
-
   return [DEFAULT_TEMPLATE];
+}
+
+/**
+ * Subscribes to real-time changes of the active template.
+ * Monitors both settings/id_card_config and idCardTemplates collection.
+ */
+export function subscribeActiveTemplate(callback: (template: IdCardTemplate) => void): () => void {
+  // Fire immediate callback with cached/default
+  callback(getCachedActiveTemplateSync());
+
+  let isUnsubscribed = false;
+
+  // Listener 1: Watch settings/id_card_config for instant single-document resolution
+  const unsubConfig = onSnapshot(
+    doc(db, 'settings', 'id_card_config'),
+    (snap) => {
+      if (isUnsubscribed) return;
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data?.activeTemplate) {
+          const active = normalizeTemplate(data.activeTemplate);
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(active));
+            } catch {}
+          }
+          callback(active);
+        }
+      }
+    },
+    (err) => {
+      console.debug('id_card_config onSnapshot notice:', err);
+    }
+  );
+
+  // Listener 2: Watch idCardTemplates collection where isActive == true
+  const qActive = query(collection(db, TEMPLATES_COLLECTION), where('isActive', '==', true));
+  const unsubCollection = onSnapshot(
+    qActive,
+    (snap) => {
+      if (isUnsubscribed) return;
+      if (!snap.empty) {
+        const docData = snap.docs[0].data() as IdCardTemplate;
+        const active = normalizeTemplate({ ...docData, id: snap.docs[0].id });
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(active));
+          } catch {}
+        }
+        callback(active);
+      }
+    },
+    (err) => {
+      console.debug('subscribeActiveTemplate error:', err);
+    }
+  );
+
+  return () => {
+    isUnsubscribed = true;
+    unsubConfig();
+    unsubCollection();
+  };
+}
+
+/**
+ * Helper that strictly enforces EXACTLY ONE active template in any list of templates.
+ */
+export function resolveSingleActiveInList(list: IdCardTemplate[], activeId?: string): IdCardTemplate[] {
+  let targetId = activeId;
+
+  if (!targetId) {
+    const activeItem = list.find((t) => t.isActive);
+    targetId = activeItem ? activeItem.id : list[0]?.id || DEFAULT_TEMPLATE.id;
+  }
+
+  return list.map((t) => ({
+    ...t,
+    isActive: t.id === targetId,
+  }));
+}
+
+/**
+ * Subscribes to real-time changes of all ID card templates for the Admin Panel.
+ */
+export function subscribeAllTemplates(callback: (templates: IdCardTemplate[]) => void): () => void {
+  let currentActiveId = '';
+
+  // Initial fetch
+  getAllTemplates().then(callback);
+
+  try {
+    // Listener 1: Watch settings/id_card_config for the active template ID pointer
+    const unsubConfig = onSnapshot(
+      doc(db, 'settings', 'id_card_config'),
+      (cfgSnap) => {
+        if (cfgSnap.exists()) {
+          const data = cfgSnap.data();
+          currentActiveId = data?.activeTemplateId || data?.activeTemplate?.id || '';
+          const cachedAll = getCachedAllTemplatesSync();
+          if (cachedAll.length > 0 && currentActiveId) {
+            callback(resolveSingleActiveInList(cachedAll, currentActiveId));
+          }
+        }
+      },
+      (err) => console.debug('id_card_config subscriber notice:', err)
+    );
+
+    // Listener 2: Watch idCardTemplates collection
+    const unsubCollection = onSnapshot(
+      collection(db, TEMPLATES_COLLECTION),
+      (snap) => {
+        const list: IdCardTemplate[] = [];
+        if (!snap.empty) {
+          snap.forEach((d) => {
+            list.push(normalizeTemplate({ ...(d.data() as IdCardTemplate), id: d.id }));
+          });
+        }
+        if (!list.some((t) => t.id === DEFAULT_TEMPLATE.id)) {
+          list.unshift(normalizeTemplate({ ...DEFAULT_TEMPLATE, isActive: false }));
+        }
+
+        const resolved = resolveSingleActiveInList(list, currentActiveId);
+
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(resolved));
+          } catch {}
+        }
+        callback(resolved);
+      },
+      (err) => {
+        console.debug('subscribeAllTemplates onSnapshot notice:', err);
+      }
+    );
+
+    return () => {
+      unsubConfig();
+      unsubCollection();
+    };
+  } catch {
+    return () => {};
+  }
+}
+
+/**
+ * Fetches all templates from Firestore.
+ */
+export async function getAllTemplates(): Promise<IdCardTemplate[]> {
+  let activeId = '';
+  try {
+    const cfgSnap = await getDoc(doc(db, 'settings', 'id_card_config'));
+    if (cfgSnap.exists()) {
+      const data = cfgSnap.data();
+      activeId = data?.activeTemplateId || data?.activeTemplate?.id || '';
+    }
+  } catch {}
+
+  try {
+    const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
+    const templates: IdCardTemplate[] = [];
+    if (!snap.empty) {
+      snap.forEach((d) => {
+        templates.push(normalizeTemplate({ ...(d.data() as IdCardTemplate), id: d.id }));
+      });
+    }
+    if (!templates.some((t) => t.id === DEFAULT_TEMPLATE.id)) {
+      templates.unshift(normalizeTemplate({ ...DEFAULT_TEMPLATE, isActive: false }));
+    }
+
+    const resolved = resolveSingleActiveInList(templates, activeId);
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(resolved));
+      } catch {}
+    }
+    return resolved;
+  } catch (err) {
+    console.debug('getAllTemplates fallback:', err);
+  }
+
+  return resolveSingleActiveInList(getCachedAllTemplatesSync(), activeId);
+}
+
+/**
+ * Sets a template as the single active template across Firestore and local cache.
+ * Accepts either a template ID string or a full IdCardTemplate object.
+ */
+export async function publishTemplate(target: string | IdCardTemplate): Promise<void> {
+  const now = new Date().toISOString();
+  let templateId: string;
+  let targetTemplate: IdCardTemplate | null = null;
+
+  if (typeof target === 'object' && target !== null) {
+    templateId = target.id || `tpl_${Date.now()}`;
+    targetTemplate = normalizeTemplate({ ...target, id: templateId, isActive: true, updatedAt: now });
+  } else {
+    templateId = target;
+  }
+
+  const allExistingMap = new Map<string, IdCardTemplate>();
+
+  try {
+    const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
+    snap.forEach((d) => {
+      const norm = normalizeTemplate({ ...(d.data() as IdCardTemplate), id: d.id });
+      allExistingMap.set(d.id, norm);
+      if (!targetTemplate && d.id === templateId) {
+        targetTemplate = norm;
+      }
+    });
+  } catch (err) {
+    console.debug('publishTemplate read notice:', err);
+  }
+
+  if (!targetTemplate && templateId === DEFAULT_TEMPLATE.id) {
+    targetTemplate = normalizeTemplate(DEFAULT_TEMPLATE);
+  } else if (!targetTemplate) {
+    const cachedAll = getCachedAllTemplatesSync();
+    targetTemplate = cachedAll.find((t) => t.id === templateId) || DEFAULT_TEMPLATE;
+  }
+
+  const activeNormalized = cleanUndefinedForFirestore(
+    normalizeTemplate({
+      ...targetTemplate,
+      id: templateId,
+      isActive: true,
+      updatedAt: now,
+    })
+  );
+
+  // 1. Save target active template to Firestore idCardTemplates
+  await setDoc(doc(db, TEMPLATES_COLLECTION, templateId), activeNormalized, { merge: true });
+
+  // 2. Mark all other existing template documents as inactive
+  const deactivations: Promise<void>[] = [];
+  allExistingMap.forEach((_, id) => {
+    if (id !== templateId) {
+      deactivations.push(
+        updateDoc(doc(db, TEMPLATES_COLLECTION, id), {
+          isActive: false,
+          updatedAt: now,
+        }).catch((e) => console.debug('Template deactivation notice:', e))
+      );
+    }
+  });
+  await Promise.all(deactivations);
+
+  // 3. Save authoritative pointer in settings/id_card_config
+  await setDoc(
+    doc(db, 'settings', 'id_card_config'),
+    {
+      activeTemplateId: templateId,
+      activeTemplate: activeNormalized,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+
+  // 4. Update local cache
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(activeNormalized));
+      const cachedAll = getCachedAllTemplatesSync();
+      const updatedAll = cachedAll.map((t) => ({
+        ...t,
+        isActive: t.id === templateId,
+        updatedAt: t.id === templateId ? now : t.updatedAt,
+      }));
+      if (!updatedAll.some((t) => t.id === templateId)) {
+        updatedAll.push(activeNormalized);
+      }
+      localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(updatedAll));
+    } catch {}
+  }
 }
 
 /**
@@ -552,36 +804,21 @@ export async function saveTemplate(template: IdCardTemplate, publish = false): P
   const templateId = template.id || `tpl_${Date.now()}`;
   const now = new Date().toISOString();
 
-  const normalized = normalizeTemplate(template);
+  const normalized = normalizeTemplate({ ...template, id: templateId });
   const finalTemplate: IdCardTemplate = {
-    ...template,
     ...normalized,
     id: templateId,
     isActive: publish ? true : !!template.isActive,
     updatedAt: now,
     createdAt: template.createdAt || now,
-    frontFields: template.frontFields || template.fields || normalized.frontFields,
-    backFields: template.backFields || normalized.backFields,
   };
 
-  try {
-    // If publishing as active, mark other templates as inactive
-    if (finalTemplate.isActive) {
-      const allExisting = await getDocs(collection(db, TEMPLATES_COLLECTION));
-      const deactivationPromises = allExisting.docs.map(async (docSnap) => {
-        if (docSnap.id !== templateId && docSnap.data().isActive) {
-          return updateDoc(doc(db, TEMPLATES_COLLECTION, docSnap.id), {
-            isActive: false,
-            updatedAt: now,
-          });
-        }
-      });
-      await Promise.all(deactivationPromises);
-    }
+  // Always write document to idCardTemplates collection first
+  const cleaned = cleanUndefinedForFirestore(finalTemplate);
+  await setDoc(doc(db, TEMPLATES_COLLECTION, templateId), cleaned, { merge: true });
 
-    await setDoc(doc(db, TEMPLATES_COLLECTION, templateId), finalTemplate);
-  } catch (err) {
-    console.warn('Firestore saveTemplate notice, caching locally:', err);
+  if (finalTemplate.isActive) {
+    await publishTemplate(finalTemplate);
   }
 
   // Cache locally
@@ -590,8 +827,8 @@ export async function saveTemplate(template: IdCardTemplate, publish = false): P
       if (finalTemplate.isActive) {
         localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(finalTemplate));
       }
-      const existingAll = localStorage.getItem(ALL_TEMPLATES_CACHE_KEY);
-      let list: IdCardTemplate[] = existingAll ? JSON.parse(existingAll).map(normalizeTemplate) : [DEFAULT_TEMPLATE];
+      const existingAll = getCachedAllTemplatesSync();
+      let list = [...existingAll];
       if (finalTemplate.isActive) {
         list = list.map((t) => ({ ...t, isActive: false }));
       }
@@ -609,57 +846,41 @@ export async function saveTemplate(template: IdCardTemplate, publish = false): P
 }
 
 /**
- * Sets a template as the single active template.
- */
-export async function publishTemplate(templateId: string): Promise<void> {
-  const now = new Date().toISOString();
-  try {
-    const all = await getDocs(collection(db, TEMPLATES_COLLECTION));
-    const updates = all.docs.map(async (d) => {
-      const shouldBeActive = d.id === templateId;
-      return updateDoc(doc(db, TEMPLATES_COLLECTION, d.id), {
-        isActive: shouldBeActive,
-        updatedAt: now,
-      });
-    });
-    await Promise.all(updates);
-  } catch (err) {
-    console.warn('publishTemplate fallback:', err);
-  }
-
-  // Update local cache
-  if (typeof window !== 'undefined') {
-    try {
-      const existingAll = localStorage.getItem(ALL_TEMPLATES_CACHE_KEY);
-      if (existingAll) {
-        const list: IdCardTemplate[] = JSON.parse(existingAll);
-        const updated = list.map((t) => ({
-          ...t,
-          isActive: t.id === templateId,
-          updatedAt: now,
-        }));
-        localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(updated));
-        const active = updated.find((t) => t.id === templateId);
-        if (active) {
-          localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(active));
-        }
-      }
-    } catch {}
-  }
-}
-
-/**
  * Deletes a template from Firestore and local cache.
+ * If the deleted template was active, automatically sets the default institutional template as active fallback.
  */
 export async function deleteTemplate(templateId: string): Promise<void> {
   if (templateId === DEFAULT_TEMPLATE.id) {
     throw new Error('The default system template cannot be deleted.');
   }
 
+  let wasActive = false;
   try {
-    await deleteDoc(doc(db, TEMPLATES_COLLECTION, templateId));
-  } catch (err) {
-    console.warn('deleteTemplate notice:', err);
+    const docSnap = await getDoc(doc(db, TEMPLATES_COLLECTION, templateId));
+    if (docSnap.exists() && docSnap.data()?.isActive) {
+      wasActive = true;
+    }
+  } catch (err: any) {
+    console.debug('deleteTemplate active check notice:', err);
+  }
+
+  // Also check if settings/id_card_config points to this templateId
+  try {
+    const cfgSnap = await getDoc(doc(db, 'settings', 'id_card_config'));
+    if (cfgSnap.exists()) {
+      const activeId = cfgSnap.data()?.activeTemplateId || cfgSnap.data()?.activeTemplate?.id;
+      if (activeId === templateId) {
+        wasActive = true;
+      }
+    }
+  } catch {}
+
+  // Delete from Firestore idCardTemplates collection
+  await deleteDoc(doc(db, TEMPLATES_COLLECTION, templateId));
+
+  // If deleted template was active, fallback active pointer to DEFAULT_TEMPLATE
+  if (wasActive) {
+    await publishTemplate(DEFAULT_TEMPLATE.id);
   }
 
   if (typeof window !== 'undefined') {
@@ -670,15 +891,190 @@ export async function deleteTemplate(templateId: string): Promise<void> {
         const filtered = list.filter((t) => t.id !== templateId);
         localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(filtered));
       }
-      const activeCached = localStorage.getItem(ACTIVE_TEMPLATE_CACHE_KEY);
-      if (activeCached) {
-        const currentActive = JSON.parse(activeCached);
-        if (currentActive.id === templateId) {
-          localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(DEFAULT_TEMPLATE));
-        }
+      if (wasActive) {
+        localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(DEFAULT_TEMPLATE));
       }
     } catch {}
   }
+}
+
+export interface TemplateSaveResult {
+  success: boolean;
+  templateId: string;
+  templateName: string;
+  readBackVerified: boolean;
+  isActive: boolean;
+  updatedAt: string;
+  frontUrl: string;
+  backUrl: string;
+}
+
+/**
+ * Saves a template to Firestore with mandatory Read-Back Persistence Verification.
+ */
+export async function saveTemplateAndVerify(template: IdCardTemplate, publish = false): Promise<TemplateSaveResult> {
+  const templateId = template.id || `tpl_${Date.now()}`;
+  const now = new Date().toISOString();
+
+  const normalized = normalizeTemplate({ ...template, id: templateId });
+  const finalTemplate: IdCardTemplate = {
+    ...normalized,
+    id: templateId,
+    isActive: publish ? true : !!template.isActive,
+    updatedAt: now,
+    createdAt: template.createdAt || now,
+  };
+
+  // 1. Always execute direct Firestore Write first
+  const cleaned = cleanUndefinedForFirestore(finalTemplate);
+  await setDoc(doc(db, TEMPLATES_COLLECTION, templateId), cleaned, { merge: true });
+
+  // 2. If active, publish to update active pointers and deactivate others
+  if (finalTemplate.isActive) {
+    await publishTemplate(finalTemplate);
+  }
+
+  // 3. Execute Mandatory Read-Back Persistence Verification from Firestore
+  const verifySnap = await getDoc(doc(db, TEMPLATES_COLLECTION, templateId));
+  if (!verifySnap.exists()) {
+    throw new Error(`Firestore persistence verification failed: Document idCardTemplates/${templateId} was not found after write operation.`);
+  }
+
+  const savedData = verifySnap.data() as IdCardTemplate;
+  const verifiedNorm = normalizeTemplate({ ...savedData, id: verifySnap.id });
+
+  // 3. Update local cache after Firestore read-back succeeds
+  if (typeof window !== 'undefined') {
+    try {
+      if (verifiedNorm.isActive) {
+        localStorage.setItem(ACTIVE_TEMPLATE_CACHE_KEY, JSON.stringify(verifiedNorm));
+      }
+      const existingAll = getCachedAllTemplatesSync();
+      let list = [...existingAll];
+      if (verifiedNorm.isActive) {
+        list = list.map((t) => ({ ...t, isActive: false }));
+      }
+      const idx = list.findIndex((t) => t.id === templateId);
+      if (idx >= 0) {
+        list[idx] = verifiedNorm;
+      } else {
+        list.push(verifiedNorm);
+      }
+      localStorage.setItem(ALL_TEMPLATES_CACHE_KEY, JSON.stringify(list));
+    } catch {}
+  }
+
+  return {
+    success: true,
+    templateId,
+    templateName: verifiedNorm.name,
+    readBackVerified: true,
+    isActive: verifiedNorm.isActive,
+    updatedAt: verifiedNorm.updatedAt,
+    frontUrl: verifiedNorm.frontTemplateUrl || verifiedNorm.templateUrl,
+    backUrl: verifiedNorm.backTemplateUrl || DEFAULT_BACK_TEMPLATE_SVG_DATA_URL,
+  };
+}
+
+/**
+ * Sets a template active and verifies read-back persistence.
+ */
+export async function publishTemplateAndVerify(templateId: string): Promise<{ success: boolean; templateId: string; activeName: string; verifiedActive: boolean }> {
+  await publishTemplate(templateId);
+
+  // Read-back verification
+  const snap = await getDoc(doc(db, TEMPLATES_COLLECTION, templateId));
+  if (!snap.exists()) {
+    throw new Error(`Verification failed: Template ${templateId} does not exist in Firestore.`);
+  }
+
+  const data = snap.data();
+  if (!data?.isActive) {
+    throw new Error(`Verification failed: Template ${templateId} in Firestore is not marked active.`);
+  }
+
+  const norm = normalizeTemplate({ ...data, id: snap.id });
+
+  return {
+    success: true,
+    templateId,
+    activeName: norm.name,
+    verifiedActive: true,
+  };
+}
+
+export interface IdCardSystemDiagnostic {
+  firebaseInitialized: boolean;
+  firestoreConnected: boolean;
+  allTemplatesCount: number;
+  activeTemplateId: string | null;
+  activeTemplateName: string | null;
+  activeTemplateVerified: boolean;
+  frontImageValid: boolean;
+  backImageValid: boolean;
+  timestamp: string;
+  details: string[];
+}
+
+/**
+ * Diagnostic test function for the ID Card Template System.
+ * Verifies Firebase, Firestore reads, active template pointer, and template media URLs.
+ */
+export async function verifyIdCardSystemHealth(): Promise<IdCardSystemDiagnostic> {
+  const details: string[] = [];
+  let firebaseInitialized = false;
+  let firestoreConnected = false;
+  let allTemplatesCount = 0;
+  let activeTemplateId: string | null = null;
+  let activeTemplateName: string | null = null;
+  let activeTemplateVerified = false;
+  let frontImageValid = false;
+  let backImageValid = false;
+
+  if (db) {
+    firebaseInitialized = true;
+    details.push('Firebase SDK initialized successfully.');
+  } else {
+    details.push('Firebase SDK initialization failed.');
+  }
+
+  try {
+    const snap = await getDocs(collection(db, TEMPLATES_COLLECTION));
+    firestoreConnected = true;
+    allTemplatesCount = snap.size;
+    details.push(`Firestore connected. Total templates found in collection: ${snap.size}`);
+  } catch (err: any) {
+    details.push(`Firestore connection read error: ${err?.message || err}`);
+  }
+
+  try {
+    const active = await getActiveTemplate();
+    if (active) {
+      activeTemplateId = active.id;
+      activeTemplateName = active.name;
+      activeTemplateVerified = true;
+      frontImageValid = !!(active.frontTemplateUrl || active.templateUrl);
+      backImageValid = !!active.backTemplateUrl;
+      details.push(`Active template resolved: "${active.name}" (ID: ${active.id})`);
+    } else {
+      details.push('No active template resolved.');
+    }
+  } catch (err: any) {
+    details.push(`Active template resolution error: ${err?.message || err}`);
+  }
+
+  return {
+    firebaseInitialized,
+    firestoreConnected,
+    allTemplatesCount,
+    activeTemplateId,
+    activeTemplateName,
+    activeTemplateVerified,
+    frontImageValid,
+    backImageValid,
+    timestamp: new Date().toISOString(),
+    details,
+  };
 }
 
 /**
@@ -724,57 +1120,21 @@ export async function uploadTemplateImage(
 
   if (onProgress) onProgress('uploading');
 
-  let downloadUrl = '';
+  // 2. Upload directly to Cloudinary CDN
+  const cloudRes = await uploadImageToCloudinary(file, 'id-card-template', {
+    customFolder: 'dare_arqam_id_templates',
+  });
 
-  // 2. Try Firebase Storage with 10s timeout
-  try {
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const storageRef = ref(storage, `idCardTemplates/template_${Date.now()}_${cleanFileName}`);
-    const uploadTask = (async () => {
-      const res = await uploadBytes(storageRef, file, {
-        contentType: file.type,
-        cacheControl: 'public, max-age=31536000, immutable',
-      });
-      return await getDownloadURL(res.ref);
-    })();
-
-    const timeoutPromise = new Promise<string>((_, reject) => {
-      setTimeout(() => reject(new Error('Firebase Storage upload timed out after 10s')), 10000);
-    });
-
-    downloadUrl = await Promise.race([uploadTask, timeoutPromise]);
-  } catch (storageErr) {
-    console.warn('Firebase Storage upload timed out or failed, trying Cloudinary CDN:', storageErr);
-    // 3. Fallback to Cloudinary CDN
-    try {
-      const cloudRes = await uploadToCloudinary(file, {
-        folder: 'dare_arqam_id_templates',
-        resourceType: 'image',
-        timeoutMs: 15000,
-      });
-      if (cloudRes.success && cloudRes.url) {
-        downloadUrl = cloudRes.url;
-      }
-    } catch (cloudErr) {
-      console.warn('Cloudinary upload fallback failed:', cloudErr);
-    }
-  }
-
-  // 4. Ultimate fallback to Data URL to ensure the administrator is NEVER stuck on "Processing..."
-  if (!downloadUrl) {
-    downloadUrl = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.readAsDataURL(file);
-    });
+  if (!cloudRes.success || !cloudRes.url) {
+    throw new Error(cloudRes.error || 'Failed to upload template background to Cloudinary CDN.');
   }
 
   if (onProgress) onProgress('completed');
 
   return {
-    url: downloadUrl,
-    width,
-    height,
+    url: cloudRes.url,
+    width: cloudRes.width || width,
+    height: cloudRes.height || height,
     aspectRatio,
   };
 }

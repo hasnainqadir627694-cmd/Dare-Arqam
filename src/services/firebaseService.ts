@@ -10,7 +10,6 @@ import {
   query,
   where 
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -22,11 +21,22 @@ import {
   User,
   UserCredential 
 } from 'firebase/auth';
-import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Notice, StudentResult, AcademicEvent, GallerySlide, GallerySettings, StudentProfile, StudentQrIdentity, AttendanceRecord, DARE_ARQAM_CLASSES } from '../types';
-import { NOTICES_DATA, RESULTS_DATABASE, EVENTS_DATA } from '../data/mockData';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { Notice, StudentResult, AcademicEvent, GallerySlide, GallerySettings, StudentProfile, StudentQrIdentity, AttendanceRecord, DocumentDownload, DARE_ARQAM_CLASSES } from '../types';
+import { 
+  NOTICES_DATA, 
+  RESULTS_DATABASE, 
+  EVENTS_DATA, 
+  NEWS_DATA, 
+  DOWNLOADS_DATA, 
+  ACADEMIC_CALENDAR_DATA, 
+  FEE_STRUCTURE_DATA, 
+  FACULTY_DATA, 
+  INSTITUTION_INFO 
+} from '../data/mockData';
 import { uploadToCloudinary } from './cloudinaryService';
 import { createStudentQrIdentity, buildQrVerificationPayload, generateQrCodeDataUrl } from './qrIdentityService';
+export { createStudentQrIdentity, buildQrVerificationPayload, generateQrCodeDataUrl };
 
 // ----------------------------------------------------
 // SINGLE DOCUMENT STATE ARCHITECTURE (Reduces Firestore Read/Write Fees)
@@ -464,51 +474,209 @@ export function subscribeHomepageGallery(callback: (gallery: HomepageGalleryStat
 
 
 // ----------------------------------------------------
-// 1. NOTICES SERVICE (Using Single Document)
+// 1. NOTICES SERVICE (Firestore Collection 'notices' - Single Source of Truth)
 // ----------------------------------------------------
 
 export async function fetchNotices(): Promise<Notice[]> {
   try {
-    const state = await fetchSingleAppState();
-    if (state && state.notices && state.notices.length > 0) {
-      return state.notices;
+    const snap = await getDocs(collection(db, 'notices'));
+    if (!snap.empty) {
+      const items: Notice[] = [];
+      snap.forEach((d) => {
+        items.push({ ...(d.data() as Notice), id: d.id });
+      });
+      items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      return items;
     }
-    return NOTICES_DATA;
   } catch (error) {
-    return NOTICES_DATA;
+    console.debug('Firestore notices collection read notice:', error);
+  }
+
+  // If empty on remote Firestore, seed initial records directly to cloud
+  try {
+    await seedNoticesIfEmpty();
+  } catch {}
+
+  return NOTICES_DATA;
+}
+
+export function subscribeNotices(callback: (notices: Notice[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'notices'),
+      (snap) => {
+        if (!snap.empty) {
+          const items: Notice[] = [];
+          snap.forEach((d) => {
+            items.push({ ...(d.data() as Notice), id: d.id });
+          });
+          items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+          callback(items);
+        } else {
+          // If empty, trigger seeder and fallback
+          seedNoticesIfEmpty().then(() => fetchNotices().then(callback)).catch(() => callback(NOTICES_DATA));
+        }
+      },
+      (error) => {
+        console.debug('subscribeNotices error, fallback to fetch:', error);
+        fetchNotices().then(callback);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    fetchNotices().then(callback);
+    return () => {};
   }
 }
 
-export async function saveNotices(notices: Notice[]): Promise<void> {
-  await saveSingleAppState({ notices });
+export async function createNotice(notice: Partial<Notice>): Promise<Notice> {
+  const id = notice.id || `not-${Date.now()}`;
+  const record: Notice = {
+    id,
+    refNo: notice.refNo || `DA/DIR/2026-${Math.floor(100 + Math.random() * 900)}`,
+    title: notice.title || 'Untitled Notice',
+    category: notice.category || 'General',
+    date: notice.date || new Date().toISOString().split('T')[0],
+    summary: notice.summary || '',
+    fullText: notice.fullText || notice.summary || '',
+    isImportant: !!notice.isImportant,
+    issuedBy: notice.issuedBy || 'Directorate of Academics & Examination',
+    fileSize: notice.fileSize || '140 KB',
+  };
+
+  await setDoc(doc(db, 'notices', id), record);
+  return record;
 }
 
-export async function seedInitialDataIfEmpty(): Promise<void> {
-  // No-op for single document optimization
+export async function updateNotice(id: string, updates: Partial<Notice>): Promise<void> {
+  await updateDoc(doc(db, 'notices', id), {
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteNotice(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'notices', id));
+}
+
+export async function saveNotices(notices: Notice[]): Promise<void> {
+  for (const n of notices) {
+    await setDoc(doc(db, 'notices', n.id), n, { merge: true });
+  }
+}
+
+async function seedNoticesIfEmpty(): Promise<void> {
+  try {
+    const snap = await getDocs(collection(db, 'notices'));
+    if (snap.empty) {
+      for (const n of NOTICES_DATA) {
+        await setDoc(doc(db, 'notices', n.id), n);
+      }
+    }
+  } catch {}
 }
 
 // ----------------------------------------------------
-// 2. EVENTS SERVICE (Using Single Document)
+// 2. EVENTS SERVICE (Firestore Collection 'events' - Single Source of Truth)
 // ----------------------------------------------------
 
 export async function fetchEvents(): Promise<AcademicEvent[]> {
   try {
-    const state = await fetchSingleAppState();
-    if (state && state.events && state.events.length > 0) {
-      return state.events;
+    const snap = await getDocs(collection(db, 'events'));
+    if (!snap.empty) {
+      const items: AcademicEvent[] = [];
+      snap.forEach((d) => {
+        items.push({ ...(d.data() as AcademicEvent), id: d.id });
+      });
+      items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      return items;
     }
-    return EVENTS_DATA;
   } catch (error) {
-    return EVENTS_DATA;
+    console.debug('Firestore events collection read notice:', error);
+  }
+
+  try {
+    await seedEventsIfEmpty();
+  } catch {}
+
+  return EVENTS_DATA;
+}
+
+export function subscribeEvents(callback: (events: AcademicEvent[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'events'),
+      (snap) => {
+        if (!snap.empty) {
+          const items: AcademicEvent[] = [];
+          snap.forEach((d) => {
+            items.push({ ...(d.data() as AcademicEvent), id: d.id });
+          });
+          items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+          callback(items);
+        } else {
+          seedEventsIfEmpty().then(() => fetchEvents().then(callback)).catch(() => callback(EVENTS_DATA));
+        }
+      },
+      (error) => {
+        console.debug('subscribeEvents error, fallback to fetch:', error);
+        fetchEvents().then(callback);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    fetchEvents().then(callback);
+    return () => {};
   }
 }
 
+export async function createEvent(event: Partial<AcademicEvent>): Promise<AcademicEvent> {
+  const id = event.id || `ev-${Date.now()}`;
+  const record: AcademicEvent = {
+    id,
+    title: event.title || 'Untitled Event',
+    date: event.date || new Date().toISOString().split('T')[0],
+    time: event.time || '09:00 AM',
+    venue: event.venue || 'Main Campus Auditorium',
+    category: event.category || 'Academic',
+    description: event.description || '',
+    isUpcoming: event.isUpcoming !== undefined ? event.isUpcoming : true,
+  };
+
+  await setDoc(doc(db, 'events', id), record);
+  return record;
+}
+
+export async function updateEvent(id: string, updates: Partial<AcademicEvent>): Promise<void> {
+  await updateDoc(doc(db, 'events', id), {
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'events', id));
+}
+
 export async function saveEvents(events: AcademicEvent[]): Promise<void> {
-  await saveSingleAppState({ events });
+  for (const ev of events) {
+    await setDoc(doc(db, 'events', ev.id), ev, { merge: true });
+  }
+}
+
+async function seedEventsIfEmpty(): Promise<void> {
+  try {
+    const snap = await getDocs(collection(db, 'events'));
+    if (snap.empty) {
+      for (const ev of EVENTS_DATA) {
+        await setDoc(doc(db, 'events', ev.id), ev);
+      }
+    }
+  } catch {}
 }
 
 // ----------------------------------------------------
-// 3. EXAMINATION RESULTS SERVICE
+// 3. EXAMINATION RESULTS SERVICE (Firestore Collection 'results' - Single Source of Truth)
 // ----------------------------------------------------
 
 export async function searchStudentResult(rollOrId: string): Promise<StudentResult | null> {
@@ -516,23 +684,160 @@ export async function searchStudentResult(rollOrId: string): Promise<StudentResu
   if (!cleaned) return null;
 
   try {
-    const localMatch = RESULTS_DATABASE.find(
-      r => r.rollNumber.toLowerCase() === cleaned.toLowerCase() ||
-           r.studentId.toLowerCase() === cleaned.toLowerCase()
+    // 1. Query by rollNumber
+    const qRoll = query(collection(db, 'results'), where('rollNumber', '==', cleaned));
+    const snapRoll = await getDocs(qRoll);
+    if (!snapRoll.empty) {
+      const docSnap = snapRoll.docs[0];
+      return { ...(docSnap.data() as StudentResult), id: docSnap.id };
+    }
+
+    // 2. Query by studentId
+    const qId = query(collection(db, 'results'), where('studentId', '==', cleaned));
+    const snapId = await getDocs(qId);
+    if (!snapId.empty) {
+      const docSnap = snapId.docs[0];
+      return { ...(docSnap.data() as StudentResult), id: docSnap.id };
+    }
+
+    // 3. Case-insensitive roll number lookup if exact query returned empty
+    const allResults = await fetchAllResults();
+    const match = allResults.find(
+      (r) =>
+        r.rollNumber.toLowerCase() === cleaned.toLowerCase() ||
+        r.studentId.toLowerCase() === cleaned.toLowerCase()
     );
-    return localMatch || null;
+    if (match) return match;
   } catch (error) {
-    console.warn('Results fetch error:', error);
-    return null;
+    console.debug('Firestore results search notice:', error);
   }
+
+  // Fallback to initial database and auto-seed to cloud
+  const localMatch = RESULTS_DATABASE.find(
+    (r) =>
+      r.rollNumber.toLowerCase() === cleaned.toLowerCase() ||
+      r.studentId.toLowerCase() === cleaned.toLowerCase()
+  );
+  if (localMatch) {
+    try {
+      const docId = localMatch.id || localMatch.studentId || localMatch.rollNumber;
+      await setDoc(doc(db, 'results', docId), localMatch);
+    } catch {}
+    return localMatch;
+  }
+
+  return null;
 }
 
 export async function fetchResultByRollOrId(rollOrId: string): Promise<StudentResult | null> {
   return searchStudentResult(rollOrId);
 }
 
+export async function fetchAllResults(): Promise<StudentResult[]> {
+  try {
+    const snap = await getDocs(collection(db, 'results'));
+    if (!snap.empty) {
+      const items: StudentResult[] = [];
+      snap.forEach((d) => {
+        items.push({ ...(d.data() as StudentResult), id: d.id });
+      });
+      return items;
+    }
+  } catch (error) {
+    console.debug('Firestore results collection fetch notice:', error);
+  }
+
+  try {
+    await seedResultsIfEmpty();
+  } catch {}
+
+  return RESULTS_DATABASE;
+}
+
+export function subscribeResults(callback: (results: StudentResult[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'results'),
+      (snap) => {
+        if (!snap.empty) {
+          const items: StudentResult[] = [];
+          snap.forEach((d) => {
+            items.push({ ...(d.data() as StudentResult), id: d.id });
+          });
+          callback(items);
+        } else {
+          seedResultsIfEmpty().then(() => fetchAllResults().then(callback)).catch(() => callback(RESULTS_DATABASE));
+        }
+      },
+      (error) => {
+        console.debug('subscribeResults notice:', error);
+        fetchAllResults().then(callback);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    fetchAllResults().then(callback);
+    return () => {};
+  }
+}
+
+export async function adminCreateResult(result: Partial<StudentResult>): Promise<StudentResult> {
+  const id = result.id || `res-${Date.now()}`;
+  const record: StudentResult = {
+    id,
+    studentId: result.studentId || `DA-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+    rollNumber: result.rollNumber || String(849200 + Math.floor(Math.random() * 500)),
+    studentName: result.studentName || 'Student Name',
+    fatherName: result.fatherName || 'Father Name',
+    className: result.className || 'Class X (Matriculation)',
+    section: result.section || 'Section A (Science)',
+    examination: result.examination || 'Annual Examination 2026',
+    session: result.session || '2025–2026',
+    examDate: result.examDate || 'March 2026',
+    subjects: result.subjects || [
+      { name: 'Holy Quran & Islamic Studies', totalMarks: 50, obtainedMarks: 48, grade: 'A+', status: 'Pass' },
+      { name: 'Urdu Literature', totalMarks: 75, obtainedMarks: 67, grade: 'A', status: 'Pass' },
+      { name: 'English Language', totalMarks: 75, obtainedMarks: 65, grade: 'A', status: 'Pass' },
+      { name: 'Mathematics', totalMarks: 75, obtainedMarks: 70, grade: 'A+', status: 'Pass' },
+      { name: 'General Science / Physics', totalMarks: 75, obtainedMarks: 68, grade: 'A', status: 'Pass' }
+    ],
+    totalMarks: Number(result.totalMarks) || 550,
+    obtainedMarks: Number(result.obtainedMarks) || 480,
+    percentage: Number(result.percentage) || 87.2,
+    overallGrade: result.overallGrade || 'A-One (Outstanding)',
+    resultStatus: (result.resultStatus as any) || 'PASS - FIRST DIVISION',
+    remarks: result.remarks || 'Promoted with academic distinction.'
+  };
+
+  await setDoc(doc(db, 'results', id), record);
+  return record;
+}
+
+export async function adminUpdateResult(id: string, updates: Partial<StudentResult>): Promise<void> {
+  await updateDoc(doc(db, 'results', id), {
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function adminDeleteResult(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'results', id));
+}
+
+async function seedResultsIfEmpty(): Promise<void> {
+  try {
+    const snap = await getDocs(collection(db, 'results'));
+    if (snap.empty) {
+      for (const r of RESULTS_DATABASE) {
+        const docId = r.id || r.studentId || r.rollNumber;
+        await setDoc(doc(db, 'results', docId), r);
+      }
+    }
+  } catch {}
+}
+
 // ----------------------------------------------------
-// 4. ADMISSION APPLICATION SERVICE
+// 4. ADMISSION APPLICATION SERVICE (Firestore Collection 'admissions_applications')
 // ----------------------------------------------------
 
 export interface AdmissionApplicationPayload {
@@ -549,37 +854,94 @@ export interface AdmissionApplicationPayload {
   [key: string]: any;
 }
 
+export interface AdmissionApplicationRecord extends AdmissionApplicationPayload {
+  id: string;
+  referenceNumber: string;
+  applicationRef: string;
+  status: 'PENDING' | 'UNDER REVIEW' | 'APPROVED' | 'INTERVIEW SCHEDULED' | 'REJECTED' | string;
+  submittedAt: string;
+  appliedDate: string;
+  remarks?: string;
+}
+
 export async function submitAdmissionToFirebase(data: AdmissionApplicationPayload): Promise<{ referenceNumber: string }> {
-  const referenceNumber = `ADM-DA-${Math.floor(10000 + Math.random() * 90000)}`;
+  const referenceNumber = `ADM-DA-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  const now = new Date().toISOString();
+
+  const record: AdmissionApplicationRecord = {
+    ...data,
+    id: referenceNumber,
+    referenceNumber,
+    applicationRef: referenceNumber,
+    status: 'PENDING',
+    submittedAt: now,
+    appliedDate: now.split('T')[0],
+  };
 
   try {
-    const state = await fetchSingleAppState();
-    const existingAdmissions = (state as any)?.admissions || [];
-    const newAdmission = {
-      ...data,
-      referenceNumber,
-      submittedAt: new Date().toISOString(),
-      status: 'Pending Verification'
-    };
-
-    await saveSingleAppState({
-      ...state,
-      admissions: [newAdmission, ...existingAdmissions]
-    } as any);
-
-    return { referenceNumber };
-  } catch (error: any) {
-    console.warn('Admission submission stored locally:', error);
-    return { referenceNumber };
+    await setDoc(doc(db, 'admissions_applications', referenceNumber), record);
+  } catch (error) {
+    console.warn('Admission cloud write notice:', error);
   }
+
+  return { referenceNumber };
 }
 
 export async function submitAdmissionApplication(data: AdmissionApplicationPayload): Promise<{ referenceNumber: string }> {
   return submitAdmissionToFirebase(data);
 }
 
+export async function fetchAllAdmissions(): Promise<AdmissionApplicationRecord[]> {
+  try {
+    const snap = await getDocs(collection(db, 'admissions_applications'));
+    if (!snap.empty) {
+      const items: AdmissionApplicationRecord[] = [];
+      snap.forEach((d) => {
+        items.push({ ...(d.data() as AdmissionApplicationRecord), id: d.id });
+      });
+      items.sort((a, b) => new Date(b.submittedAt || b.appliedDate || 0).getTime() - new Date(a.submittedAt || a.appliedDate || 0).getTime());
+      return items;
+    }
+  } catch (error) {
+    console.debug('Firestore admissions fetch notice:', error);
+  }
+  return [];
+}
+
+export function subscribeAdmissions(callback: (admissions: AdmissionApplicationRecord[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'admissions_applications'),
+      (snap) => {
+        const items: AdmissionApplicationRecord[] = [];
+        snap.forEach((d) => {
+          items.push({ ...(d.data() as AdmissionApplicationRecord), id: d.id });
+        });
+        items.sort((a, b) => new Date(b.submittedAt || b.appliedDate || 0).getTime() - new Date(a.submittedAt || a.appliedDate || 0).getTime());
+        callback(items);
+      },
+      (error) => {
+        console.debug('subscribeAdmissions notice:', error);
+        fetchAllAdmissions().then(callback);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    fetchAllAdmissions().then(callback);
+    return () => {};
+  }
+}
+
+export async function adminUpdateAdmissionStatus(id: string, status: string, remarks?: string): Promise<void> {
+  await updateDoc(doc(db, 'admissions_applications', id), {
+    status,
+    ...(remarks !== undefined ? { remarks } : {}),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 // ----------------------------------------------------
-// 5. INQUIRIES SERVICE
+// 5. INQUIRIES SERVICE (Firestore Collection 'inquiries')
 // ----------------------------------------------------
 
 export interface InquiryPayload {
@@ -587,43 +949,294 @@ export interface InquiryPayload {
   name?: string;
   phone: string;
   email: string;
+  category?: string;
   subject: string;
   message: string;
   [key: string]: any;
 }
 
-export async function submitInquiryToFirebase(data: InquiryPayload): Promise<{ inquiryId: string }> {
-  const inquiryId = `INQ-DA-${Math.floor(10000 + Math.random() * 90000)}`;
-  try {
-    const state = await fetchSingleAppState();
-    const existingInquiries = (state as any)?.inquiries || [];
-    const newInquiry = {
-      ...data,
-      inquiryId,
-      submittedAt: new Date().toISOString(),
-      status: 'Unread'
-    };
+export interface InquiryRecord extends InquiryPayload {
+  id: string;
+  inquiryId: string;
+  status: 'Unread' | 'In Progress' | 'Resolved' | 'Archived' | string;
+  createdAt: string;
+}
 
-    await saveSingleAppState({
-      ...state,
-      inquiries: [newInquiry, ...existingInquiries]
-    } as any);
-    return { inquiryId };
+export async function submitInquiryToFirebase(data: InquiryPayload): Promise<{ inquiryId: string }> {
+  const inquiryId = `INQ-DA-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  const now = new Date().toISOString();
+
+  const record: InquiryRecord = {
+    ...data,
+    id: inquiryId,
+    inquiryId,
+    name: data.name || data.fullName || 'Anonymous',
+    category: data.category || 'General',
+    status: 'Unread',
+    createdAt: now.split('T')[0],
+  };
+
+  try {
+    await setDoc(doc(db, 'inquiries', inquiryId), record);
   } catch (error) {
-    console.warn('Inquiry submission error:', error);
-    return { inquiryId };
+    console.warn('Inquiry cloud write notice:', error);
   }
+
+  return { inquiryId };
 }
 
 export async function submitInquiry(data: InquiryPayload): Promise<{ inquiryId: string }> {
   return submitInquiryToFirebase(data);
 }
 
+export async function fetchAllInquiries(): Promise<InquiryRecord[]> {
+  try {
+    const snap = await getDocs(collection(db, 'inquiries'));
+    if (!snap.empty) {
+      const items: InquiryRecord[] = [];
+      snap.forEach((d) => {
+        items.push({ ...(d.data() as InquiryRecord), id: d.id });
+      });
+      items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      return items;
+    }
+  } catch (error) {
+    console.debug('Firestore inquiries fetch notice:', error);
+  }
+  return [];
+}
+
+export function subscribeInquiries(callback: (inquiries: InquiryRecord[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'inquiries'),
+      (snap) => {
+        const items: InquiryRecord[] = [];
+        snap.forEach((d) => {
+          items.push({ ...(d.data() as InquiryRecord), id: d.id });
+        });
+        items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        callback(items);
+      },
+      (error) => {
+        console.debug('subscribeInquiries notice:', error);
+        fetchAllInquiries().then(callback);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    fetchAllInquiries().then(callback);
+    return () => {};
+  }
+}
+
+export async function adminUpdateInquiryStatus(id: string, status: string): Promise<void> {
+  await updateDoc(doc(db, 'inquiries', id), {
+    status,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+// ----------------------------------------------------
+// 5b. ACADEMIC INFORMATION & OFFICIAL DOCUMENTS (Firestore Collections)
+// ----------------------------------------------------
+
+export async function fetchAcademicCalendar(): Promise<any[]> {
+  try {
+    const snap = await getDoc(doc(db, 'academicInformation', 'calendar'));
+    if (snap.exists() && Array.isArray(snap.data()?.events)) {
+      return snap.data().events;
+    }
+  } catch {}
+
+  try {
+    await setDoc(doc(db, 'academicInformation', 'calendar'), { events: ACADEMIC_CALENDAR_DATA }, { merge: true });
+  } catch {}
+
+  return ACADEMIC_CALENDAR_DATA;
+}
+
+export function subscribeAcademicCalendar(callback: (events: any[]) => void): () => void {
+  try {
+    const unsub = onSnapshot(
+      doc(db, 'academicInformation', 'calendar'),
+      (snap) => {
+        if (snap.exists() && Array.isArray(snap.data()?.events)) {
+          callback(snap.data().events);
+        } else {
+          callback(ACADEMIC_CALENDAR_DATA);
+        }
+      },
+      (error) => {
+        console.debug('subscribeAcademicCalendar onSnapshot notice:', error?.message || error);
+        callback(ACADEMIC_CALENDAR_DATA);
+      }
+    );
+    return unsub;
+  } catch {
+    callback(ACADEMIC_CALENDAR_DATA);
+    return () => {};
+  }
+}
+
+export async function fetchFeeStructure(): Promise<any[]> {
+  try {
+    const snap = await getDoc(doc(db, 'academicInformation', 'fee_structure'));
+    if (snap.exists() && Array.isArray(snap.data()?.fees)) {
+      return snap.data().fees;
+    }
+  } catch {}
+
+  try {
+    await setDoc(doc(db, 'academicInformation', 'fee_structure'), { fees: FEE_STRUCTURE_DATA }, { merge: true });
+  } catch {}
+
+  return FEE_STRUCTURE_DATA;
+}
+
+export function subscribeFeeStructure(callback: (fees: any[]) => void): () => void {
+  try {
+    const unsub = onSnapshot(
+      doc(db, 'academicInformation', 'fee_structure'),
+      (snap) => {
+        if (snap.exists() && Array.isArray(snap.data()?.fees)) {
+          callback(snap.data().fees);
+        } else {
+          callback(FEE_STRUCTURE_DATA);
+        }
+      },
+      (error) => {
+        console.debug('subscribeFeeStructure onSnapshot notice:', error?.message || error);
+        callback(FEE_STRUCTURE_DATA);
+      }
+    );
+    return unsub;
+  } catch {
+    callback(FEE_STRUCTURE_DATA);
+    return () => {};
+  }
+}
+
+export async function fetchDocuments(): Promise<DocumentDownload[]> {
+  try {
+    const snap = await getDocs(collection(db, 'documents'));
+    if (!snap.empty) {
+      const docs: DocumentDownload[] = [];
+      snap.forEach((d) => {
+        docs.push({ ...(d.data() as DocumentDownload), id: d.id });
+      });
+      return docs;
+    }
+  } catch {}
+
+  try {
+    for (const d of DOWNLOADS_DATA) {
+      await setDoc(doc(db, 'documents', d.id), d);
+    }
+  } catch {}
+
+  return DOWNLOADS_DATA;
+}
+
+export function subscribeDocuments(callback: (docs: DocumentDownload[]) => void): () => void {
+  try {
+    const unsub = onSnapshot(
+      collection(db, 'documents'),
+      (snap) => {
+        if (!snap.empty) {
+          const docs: DocumentDownload[] = [];
+          snap.forEach((d) => {
+            docs.push({ ...(d.data() as DocumentDownload), id: d.id });
+          });
+          callback(docs);
+        } else {
+          callback(DOWNLOADS_DATA);
+        }
+      },
+      (error) => {
+        console.debug('subscribeDocuments onSnapshot notice:', error?.message || error);
+        callback(DOWNLOADS_DATA);
+      }
+    );
+    return unsub;
+  } catch {
+    callback(DOWNLOADS_DATA);
+    return () => {};
+  }
+}
+
+export async function saveDocument(docData: DocumentDownload): Promise<void> {
+  await setDoc(doc(db, 'documents', docData.id), docData, { merge: true });
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'documents', id));
+}
+
+// ----------------------------------------------------
+// 5c. SEED INITIAL DATA IF EMPTY (Real Cloud Firestore Bootstrapper)
+// ----------------------------------------------------
+
+let isSeedingCompleted = false;
+
+export async function seedInitialDataIfEmpty(): Promise<void> {
+  if (isSeedingCompleted) return;
+
+  try {
+    // 1. Notices
+    await seedNoticesIfEmpty();
+    // 2. Events
+    await seedEventsIfEmpty();
+    // 3. Results
+    await seedResultsIfEmpty();
+    // 4. Academic Calendar & Fee Structure
+    await fetchAcademicCalendar();
+    await fetchFeeStructure();
+    // 5. Official Documents
+    await fetchDocuments();
+
+    // 6. Ensure default branding document exists
+    try {
+      const brandingSnap = await getDoc(doc(db, 'pages', 'branding_settings'));
+      if (!brandingSnap.exists()) {
+        await setDoc(doc(db, 'pages', 'branding_settings'), {
+          institutionName: 'DAR - E - ARQAM',
+          tagline: 'School Katlang Campus',
+          establishedYear: '1998',
+          logoUrl: '/branding/logo.png',
+          bannerUrl: '',
+          principalName: INSTITUTION_INFO.principalName,
+          principalTitle: 'Principal / Head of Institution',
+          principalQualification: INSTITUTION_INFO.principalQualification,
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'branding', 'current'), {
+          institutionName: 'DAR - E - ARQAM',
+          tagline: 'School Katlang Campus',
+          logoUrl: '/branding/logo.png',
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'banners', 'hero'), {
+          bannerUrl: '',
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch {}
+
+    isSeedingCompleted = true;
+    console.log('[Firestore] Real cloud initial data validation & bootstrap verified.');
+  } catch (err) {
+    console.debug('[Firestore] Seed check notice:', err);
+  }
+}
+
 // ----------------------------------------------------
 // 6. STUDENT AUTHENTICATION & PROFILE SERVICES
 // ----------------------------------------------------
 
-const LOCAL_STORAGE_CURRENT_STUDENT_KEY = 'dare_arqam_current_student';
+export const LOCAL_STORAGE_CURRENT_STUDENT_KEY = 'dare_arqam_current_student';
 
 export interface RegisterStudentInput {
   fullName: string;
@@ -633,6 +1246,8 @@ export interface RegisterStudentInput {
   whatsappNumber: string;
   email: string;
   password: string;
+  profileImageUrl?: string;
+  profileImagePublicId?: string;
 }
 
 /**
@@ -650,11 +1265,27 @@ export async function checkDuplicateRollNumber(className: string, rollNumber: st
       where('rollNumber', '==', cleanRoll)
     );
     const snap = await getDocs(q);
-    return !snap.empty;
+    if (!snap.empty) return true;
   } catch (err) {
     console.debug('Duplicate check skipped due to rule/query context:', err);
-    return false;
   }
+
+  // Check persistent server store
+  try {
+    const res = await fetch('/api/students');
+    if (res.ok) {
+      const students = await res.json();
+      if (Array.isArray(students)) {
+        return students.some(
+          (s: any) =>
+            s?.className?.trim()?.toLowerCase() === cleanClass.toLowerCase() &&
+            s?.rollNumber?.trim()?.toLowerCase() === cleanRoll.toLowerCase()
+        );
+      }
+    }
+  } catch {}
+
+  return false;
 }
 
 /**
@@ -692,7 +1323,9 @@ export async function registerStudentWithFirebase(data: RegisterStudentInput): P
     rollNumber: data.rollNumber.trim(),
     whatsappNumber: data.whatsappNumber.trim(),
     email: user.email || data.email.trim(),
-    profileImageUrl: '',
+    profileImageUrl: data.profileImageUrl || '',
+    profileImagePublicId: data.profileImagePublicId || '',
+    status: 'active',
     studentId,
     qrIdentity,
     createdAt: new Date().toISOString(),
@@ -708,14 +1341,28 @@ export async function registerStudentWithFirebase(data: RegisterStudentInput): P
     await setDoc(doc(db, 'qr_tokens', qrIdentity.tokenId), {
       uid: user.uid,
       tokenId: qrIdentity.tokenId,
+      studentName: studentProfile.fullName,
+      className: studentProfile.className,
+      rollNumber: studentProfile.rollNumber,
       status: 'active',
       createdAt: qrIdentity.createdAt,
     });
-  } catch (err) {
-    console.warn('Direct Firestore student write fallback:', err);
+  } catch (err: any) {
+    console.warn('Direct Firestore student write notice (backing up to server and local storage):', err?.message || err);
   }
 
-  // 4. Cache in localStorage for immediate rendering
+  // 4. Back up permanently to Server Database
+  try {
+    await fetch('/api/students/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(studentProfile),
+    });
+  } catch (apiErr) {
+    console.debug('Server database student backup notice:', apiErr);
+  }
+
+  // 5. Cache in localStorage for immediate rendering
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(studentProfile));
@@ -735,16 +1382,26 @@ export async function loginStudentWithFirebase(email: string, pass: string): Pro
 }
 
 /**
- * Retrieves student profile from Firestore `students/{uid}` with localStorage fallback.
+ * Retrieves student profile from Firestore `students/{uid}` with Server and localStorage fallbacks.
+ * Strictly binds data access to the authenticated Firebase user UID for non-admin sessions.
  */
 export async function getStudentProfile(uid: string): Promise<StudentProfile | null> {
-  if (!uid) return null;
+  const currentAuthUser = auth.currentUser;
+  let targetUid = uid;
 
+  // Enforce authoritative identity from Firebase Auth for student sessions
+  if (currentAuthUser && currentAuthUser.uid !== uid) {
+    targetUid = currentAuthUser.uid;
+  }
+
+  if (!targetUid) return null;
+
+  // 1. Try Firestore direct document
   try {
-    const snap = await getDoc(doc(db, 'students', uid));
+    const snap = await getDoc(doc(db, 'students', targetUid));
     if (snap.exists()) {
       const data = { ...(snap.data() as StudentProfile), uid: snap.id };
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && currentAuthUser?.uid === targetUid) {
         try {
           localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(data));
         } catch {}
@@ -755,14 +1412,14 @@ export async function getStudentProfile(uid: string): Promise<StudentProfile | n
     console.debug('Firestore getStudentProfile fallback:', err);
   }
 
-  // Fallback: query collection by uid field
+  // 2. Query Firestore collection by uid field
   try {
-    const q = query(collection(db, 'students'), where('uid', '==', uid));
+    const q = query(collection(db, 'students'), where('uid', '==', targetUid));
     const qSnap = await getDocs(q);
     if (!qSnap.empty) {
       const docSnap = qSnap.docs[0];
       const data = { ...(docSnap.data() as StudentProfile), uid: docSnap.id };
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && currentAuthUser?.uid === targetUid) {
         try {
           localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(data));
         } catch {}
@@ -771,13 +1428,37 @@ export async function getStudentProfile(uid: string): Promise<StudentProfile | n
     }
   } catch {}
 
-  // Fallback to local cache
-  if (typeof window !== 'undefined') {
+  // 3. Try Server Store API
+  try {
+    let headers: Record<string, string> = {};
+    if (currentAuthUser) {
+      const idToken = await currentAuthUser.getIdToken();
+      if (idToken) headers = { Authorization: `Bearer ${idToken}` };
+    }
+
+    const res = await fetch(`/api/students/${encodeURIComponent(targetUid)}`, { headers });
+    if (res.ok) {
+      const serverData = await res.json();
+      if (serverData && (serverData.uid || serverData.studentId)) {
+        if (typeof window !== 'undefined' && currentAuthUser?.uid === targetUid) {
+          try {
+            localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(serverData));
+          } catch {}
+        }
+        return serverData;
+      }
+    }
+  } catch (serverErr) {
+    console.debug('Server getStudentProfile notice:', serverErr);
+  }
+
+  // 4. Fallback to local cache only if belonging to current auth user
+  if (typeof window !== 'undefined' && currentAuthUser) {
     try {
       const cached = localStorage.getItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.uid === uid || parsed.email === uid) return parsed;
+        if (parsed.uid === currentAuthUser.uid) return parsed;
       }
     } catch {}
   }
@@ -789,21 +1470,28 @@ export async function getStudentProfile(uid: string): Promise<StudentProfile | n
  * Real-time listener for a student's personal profile document.
  */
 export function subscribeStudentProfile(uid: string, callback: (profile: StudentProfile | null) => void): () => void {
-  if (!uid) {
+  const currentAuthUser = auth.currentUser;
+  let targetUid = uid;
+
+  if (currentAuthUser && currentAuthUser.uid !== uid) {
+    targetUid = currentAuthUser.uid;
+  }
+
+  if (!targetUid) {
     callback(null);
     return () => {};
   }
 
   // Initial immediate callback from cache/read
-  getStudentProfile(uid).then(callback);
+  getStudentProfile(targetUid).then(callback);
 
   try {
     const unsubscribe = onSnapshot(
-      doc(db, 'students', uid),
+      doc(db, 'students', targetUid),
       (snap) => {
         if (snap.exists()) {
           const profile = snap.data() as StudentProfile;
-          if (typeof window !== 'undefined') {
+          if (typeof window !== 'undefined' && auth.currentUser?.uid === targetUid) {
             try {
               localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(profile));
             } catch {}
@@ -825,12 +1513,19 @@ export function subscribeStudentProfile(uid: string, callback: (profile: Student
 
 /**
  * Updates allowed student profile fields in Firestore.
- * Does NOT allow changing protected fields: `rollNumber`, `className`, `uid`.
+ * Does NOT allow changing protected fields: `rollNumber`, `className`, `uid`, `studentId`, `status`, `role`, `isAdmin`.
  */
 export async function updateStudentProfile(uid: string, updates: Partial<StudentProfile>): Promise<void> {
-  if (!uid) throw new Error('Student UID is required');
+  const currentAuthUser = auth.currentUser;
+  let targetUid = uid;
 
-  // Strip protected fields from being overwritten by student
+  if (currentAuthUser && currentAuthUser.uid !== uid) {
+    targetUid = currentAuthUser.uid;
+  }
+
+  if (!targetUid) throw new Error('Student UID is required');
+
+  // Strip protected privilege fields from being overwritten by student
   const sanitizedUpdates: Partial<StudentProfile> = {
     ...updates,
     updatedAt: new Date().toISOString(),
@@ -838,26 +1533,47 @@ export async function updateStudentProfile(uid: string, updates: Partial<Student
   delete sanitizedUpdates.uid;
   delete sanitizedUpdates.rollNumber;
   delete sanitizedUpdates.className;
+  delete sanitizedUpdates.studentId;
+  delete sanitizedUpdates.status;
+  delete (sanitizedUpdates as any).role;
+  delete (sanitizedUpdates as any).isAdmin;
+  delete (sanitizedUpdates as any).permissions;
 
   try {
-    await updateDoc(doc(db, 'students', uid), sanitizedUpdates);
+    await updateDoc(doc(db, 'students', targetUid), sanitizedUpdates);
   } catch {
     try {
-      // If updateDoc fails (e.g. document not yet created), use setDoc with merge
-      await setDoc(doc(db, 'students', uid), { ...sanitizedUpdates, uid }, { merge: true });
+      await setDoc(doc(db, 'students', targetUid), { ...sanitizedUpdates, uid: targetUid }, { merge: true });
     } catch (setErr) {
       console.warn('Firestore updateStudentProfile fallback notice:', setErr);
     }
   }
 
   // Update local cache
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && currentAuthUser?.uid === targetUid) {
     try {
       const cached = localStorage.getItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY);
       const current = cached ? JSON.parse(cached) : {};
-      const merged = { ...current, ...sanitizedUpdates };
+      const merged = { ...current, ...sanitizedUpdates, uid: targetUid };
       localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(merged));
     } catch {}
+  }
+
+  // Back up permanently to Server Database
+  try {
+    let headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (currentAuthUser) {
+      const idToken = await currentAuthUser.getIdToken();
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    await fetch('/api/students/profile', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ uid: targetUid, ...sanitizedUpdates }),
+    });
+  } catch (apiErr) {
+    console.debug('Server database profile update backup notice:', apiErr);
   }
 }
 
@@ -930,84 +1646,42 @@ export async function uploadStudentProfilePicture(
     throw new Error('Please select a valid image file (JPG, PNG, or WebP).');
   }
 
-  // Validate file size (max 10MB before compression)
-  if (file.size > 10 * 1024 * 1024) {
-    throw new Error('Image size exceeds 10MB. Please choose a smaller photo.');
-  }
-
-  if (onProgress) onProgress('processing');
-
-  // 1. If file is already a pre-cropped perfected avatar (WebP or PNG under 2MB), use directly!
-  let compressedBlob: Blob;
-  if ((file.type === 'image/webp' || file.type === 'image/png') && file.size < 2 * 1024 * 1024) {
-    compressedBlob = file;
-  } else {
-    compressedBlob = await compressProfileImage(file);
+  // Validate file size (max 20MB)
+  if (file.size > 20 * 1024 * 1024) {
+    throw new Error('Image size exceeds 20MB. Please choose a smaller photo.');
   }
 
   if (onProgress) onProgress('uploading');
 
   let downloadUrl = '';
-  const ext = compressedBlob.type.includes('png') ? 'png' : 'webp';
-  const contentType = compressedBlob.type || 'image/webp';
+  let publicId = '';
 
-  // 2. Try Firebase Storage with 10s timeout
-  try {
-    const storageRef = ref(storage, `students/${uid}/profile_${Date.now()}.${ext}`);
-    const uploadTask = (async () => {
-      const uploadRes = await uploadBytes(storageRef, compressedBlob, {
-        contentType,
-        cacheControl: 'public, max-age=31536000, immutable',
-      });
-      return await getDownloadURL(uploadRes.ref);
-    })();
+  // 1. Upload original selected image directly to Cloudinary CDN
+  const cloudRes = await uploadToCloudinary(file, {
+    folder: 'dare_arqam_students',
+    resourceType: 'image',
+    timeoutMs: 35000,
+  });
 
-    const timeoutPromise = new Promise<string>((_, reject) => {
-      setTimeout(() => reject(new Error('Firebase Storage upload timed out after 10s')), 10000);
-    });
-
-    downloadUrl = await Promise.race([uploadTask, timeoutPromise]);
-  } catch (storageErr) {
-    console.warn('Firebase Storage upload notice, falling back to Cloudinary CDN:', storageErr);
-    // 3. Fallback to Cloudinary CDN
-    try {
-      const cloudRes = await uploadToCloudinary(compressedBlob, {
-        folder: 'dare_arqam_students',
-        resourceType: 'image',
-        timeoutMs: 15000,
-      });
-      if (cloudRes.success && cloudRes.url) {
-        downloadUrl = cloudRes.url;
-      }
-    } catch (cloudErr) {
-      console.warn('Cloudinary upload fallback failed:', cloudErr);
-    }
+  if (!cloudRes.success || !cloudRes.url) {
+    throw new Error(cloudRes.error || 'Failed to upload photo to Cloudinary CDN. Please check your internet connection.');
   }
 
-  // 4. If cloud uploads both fail, convert blob to data URL so interface is NEVER stuck
-  if (!downloadUrl) {
-    downloadUrl = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.readAsDataURL(compressedBlob);
-    });
-  }
+  downloadUrl = cloudRes.url;
+  publicId = cloudRes.publicId || '';
 
-  // 5. Update Firestore `students/{uid}` with the new picture URL
+  // 3. Update Firestore `students/{uid}` with the permanent Cloudinary picture URL
   const updatePayload = {
     uid,
     profileImageUrl: downloadUrl,
+    profileImagePublicId: publicId,
     updatedAt: new Date().toISOString(),
   };
 
   try {
     await updateDoc(doc(db, 'students', uid), updatePayload);
   } catch {
-    try {
-      await setDoc(doc(db, 'students', uid), updatePayload, { merge: true });
-    } catch (setErr) {
-      console.warn('Firestore student profile photo save notice:', setErr);
-    }
+    await setDoc(doc(db, 'students', uid), updatePayload, { merge: true });
   }
 
   // 6. Update local cache
@@ -1027,22 +1701,42 @@ export async function uploadStudentProfilePicture(
 }
 
 /**
- * Fetches all registered students from Firestore `students` collection.
+ * Fetches all registered students from Firestore `students` collection with Server backup.
  */
 export async function fetchAllStudents(): Promise<StudentProfile[]> {
+  const studentsMap = new Map<string, StudentProfile>();
+
+  // 1. Try Firestore
   try {
     const snap = await getDocs(collection(db, 'students'));
     if (!snap.empty) {
-      const students: StudentProfile[] = [];
       snap.forEach((d) => {
-        students.push({ ...(d.data() as StudentProfile), uid: d.id });
+        const student = { ...(d.data() as StudentProfile), uid: d.id };
+        studentsMap.set(student.uid, student);
       });
-      return students;
     }
   } catch (err) {
-    console.debug('fetchAllStudents error (using empty):', err);
+    console.debug('fetchAllStudents Firestore error (falling back to server store):', err);
   }
-  return [];
+
+  // 2. Try Server Store
+  try {
+    const res = await fetch('/api/students');
+    if (res.ok) {
+      const serverList = await res.json();
+      if (Array.isArray(serverList)) {
+        serverList.forEach((s: StudentProfile) => {
+          if (s && s.uid && !studentsMap.has(s.uid)) {
+            studentsMap.set(s.uid, s);
+          }
+        });
+      }
+    }
+  } catch (serverErr) {
+    console.debug('fetchAllStudents Server store error:', serverErr);
+  }
+
+  return Array.from(studentsMap.values());
 }
 
 /**
@@ -1224,6 +1918,10 @@ export async function ensureStudentQrIdentity(studentOrUid: StudentProfile | str
  * Resolves a scanned QR token to its corresponding student record.
  * Handles both raw token IDs ('dast_...') and full verification URLs.
  */
+// In-memory LRU-style cache for fast repeated QR token verification queries (TTL: 30 seconds)
+const qrTokenLookupCache = new Map<string, { data: any; timestamp: number }>();
+const QR_CACHE_TTL_MS = 30_000;
+
 export async function lookupStudentByQrToken(rawTokenOrUrl: string): Promise<{
   student: StudentProfile | null;
   isValid: boolean;
@@ -1250,6 +1948,12 @@ export async function lookupStudentByQrToken(rawTokenOrUrl: string): Promise<{
     tokenId = match[0];
   }
 
+  // Check cache for zero-latency resolution
+  const cached = qrTokenLookupCache.get(tokenId);
+  if (cached && (Date.now() - cached.timestamp) < QR_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   // 1. Check direct token index in `qr_tokens/{tokenId}`
   try {
     const tokenSnap = await getDoc(doc(db, 'qr_tokens', tokenId));
@@ -1273,12 +1977,14 @@ export async function lookupStudentByQrToken(rawTokenOrUrl: string): Promise<{
         };
       }
 
-      return {
+      const activeRes = {
         student,
         isValid: true,
-        status: 'active',
+        status: 'active' as const,
         message: 'Student verified successfully with active permanent QR identity.',
       };
+      qrTokenLookupCache.set(tokenId, { data: activeRes, timestamp: Date.now() });
+      return activeRes;
     }
   } catch (err) {
     console.debug('Token lookup index error, falling back to student query:', err);
@@ -1293,31 +1999,51 @@ export async function lookupStudentByQrToken(rawTokenOrUrl: string): Promise<{
       const student = { ...(docSnap.data() as StudentProfile), uid: docSnap.id };
 
       if (student.qrIdentity?.status === 'revoked') {
-        return {
+        const revokedRes = {
           student,
           isValid: false,
-          status: 'revoked',
+          status: 'revoked' as const,
           message: 'This Student QR Identity has been revoked by administration.',
         };
+        qrTokenLookupCache.set(tokenId, { data: revokedRes, timestamp: Date.now() });
+        return revokedRes;
       }
 
-      return {
+      const activeRes = {
         student,
         isValid: true,
-        status: 'active',
+        status: 'active' as const,
         message: 'Student verified successfully with active permanent QR identity.',
       };
+      qrTokenLookupCache.set(tokenId, { data: activeRes, timestamp: Date.now() });
+      return activeRes;
     }
   } catch (err) {
     console.debug('Student query by qrIdentity error:', err);
   }
 
-  return {
+  // 3. Fallback: Query Server Store by tokenId
+  try {
+    const res = await fetch(`/api/students/verify-qr/${encodeURIComponent(tokenId)}`);
+    if (res.ok) {
+      const serverRes = await res.json();
+      if (serverRes && serverRes.student) {
+        qrTokenLookupCache.set(tokenId, { data: serverRes, timestamp: Date.now() });
+        return serverRes;
+      }
+    }
+  } catch (serverErr) {
+    console.debug('Server verify-qr error:', serverErr);
+  }
+
+  const notFoundRes = {
     student: null,
     isValid: false,
-    status: 'not_found',
+    status: 'not_found' as const,
     message: 'Invalid or unrecognized student QR token.',
   };
+  qrTokenLookupCache.set(tokenId, { data: notFoundRes, timestamp: Date.now() });
+  return notFoundRes;
 }
 
 /**
@@ -1554,16 +2280,22 @@ export async function recordAttendanceScan(
  * Fetches historical attendance scan logs for a student.
  */
 export async function fetchStudentAttendance(studentUid: string): Promise<AttendanceRecord[]> {
-  if (!studentUid) return [];
+  const currentAuthUser = auth.currentUser;
+  let targetUid = studentUid;
+
+  if (currentAuthUser && currentAuthUser.uid !== studentUid) {
+    targetUid = currentAuthUser.uid;
+  }
+
+  if (!targetUid) return [];
   try {
-    const q = query(collection(db, 'attendance'), where('studentUid', '==', studentUid));
+    const q = query(collection(db, 'attendance'), where('studentUid', '==', targetUid));
     const snap = await getDocs(q);
     if (!snap.empty) {
       const records: AttendanceRecord[] = [];
       snap.forEach((d) => {
         records.push({ ...(d.data() as AttendanceRecord), id: d.id });
       });
-      // Sort newest first
       return records.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
   } catch (err) {

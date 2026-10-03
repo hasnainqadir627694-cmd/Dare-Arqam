@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PageId, GallerySlide } from '../types';
+import { PageId, GallerySlide, DocumentDownload } from '../types';
 import { NEWS_DATA, DOWNLOADS_DATA } from '../data/mockData';
 import { 
   FileText, 
@@ -19,7 +19,9 @@ import { LazyImage } from '../components/LazyImage';
 import { 
   fetchHomepageGallery, 
   subscribeHomepageGallery, 
-  DEFAULT_GALLERY_SLIDES 
+  DEFAULT_GALLERY_SLIDES,
+  fetchDocuments,
+  subscribeDocuments
 } from '../services/firebaseService';
 
 interface MediaViewProps {
@@ -35,6 +37,7 @@ export const MediaView: React.FC<MediaViewProps> = ({
   const [galleryFilter, setGalleryFilter] = useState<string>('All');
   const [downloadSearch, setDownloadSearch] = useState<string>('');
   const [firebaseSlides, setFirebaseSlides] = useState<GallerySlide[]>(DEFAULT_GALLERY_SLIDES);
+  const [documentsList, setDocumentsList] = useState<DocumentDownload[]>(DOWNLOADS_DATA);
   const [selectedLightboxIndex, setSelectedLightboxIndex] = useState<number | null>(null);
 
   // Default institutional showcase items
@@ -112,6 +115,23 @@ export const MediaView: React.FC<MediaViewProps> = ({
     return () => unsub();
   }, []);
 
+  // Subscribe to live Firebase Documents & Downloads
+  useEffect(() => {
+    fetchDocuments().then((docs) => {
+      if (docs && docs.length > 0) {
+        setDocumentsList(docs);
+      }
+    }).catch(() => {});
+
+    const unsubDocs = subscribeDocuments((docs) => {
+      if (docs && docs.length > 0) {
+        setDocumentsList(docs);
+      }
+    });
+
+    return () => unsubDocs();
+  }, []);
+
   // Map Firebase slides into unified gallery items
   const liveFirebaseItems = firebaseSlides
     .filter(s => s.enabled)
@@ -135,7 +155,7 @@ export const MediaView: React.FC<MediaViewProps> = ({
     return item.category?.toLowerCase() === galleryFilter.toLowerCase();
   });
 
-  const filteredDownloads = DOWNLOADS_DATA.filter(doc =>
+  const filteredDownloads = documentsList.filter(doc =>
     doc.title.toLowerCase().includes(downloadSearch.toLowerCase()) ||
     doc.category.toLowerCase().includes(downloadSearch.toLowerCase()) ||
     doc.refNo.toLowerCase().includes(downloadSearch.toLowerCase())

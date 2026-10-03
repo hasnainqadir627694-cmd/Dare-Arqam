@@ -3,11 +3,12 @@ import { GallerySlide, GallerySettings } from '../../types';
 import { 
   fetchHomepageGallery, 
   saveHomepageGallery, 
+  subscribeHomepageGallery,
   DEFAULT_GALLERY_SETTINGS, 
   DEFAULT_GALLERY_SLIDES,
   HomepageGalleryState 
 } from '../../services/firebaseService';
-import { deleteFromCloudinary, uploadToCloudinary } from '../../services/cloudinaryService';
+import { uploadImageToCloudinary, deleteFromCloudinary } from '../../services/cloudinaryService';
 import { 
   Upload, 
   Plus, 
@@ -71,7 +72,7 @@ export const HomepageGalleryManager: React.FC<HomepageGalleryManagerProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Fetch initial data
+  // Fetch initial data & subscribe to real-time changes
   useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
@@ -82,8 +83,17 @@ export const HomepageGalleryManager: React.FC<HomepageGalleryManagerProps> = ({
         setIsLoading(false);
       }
     });
+
+    const unsubscribe = subscribeHomepageGallery((data) => {
+      if (isMounted && data.slides && data.slides.length > 0) {
+        setSlides(data.slides);
+        if (data.settings) setSettings(data.settings);
+      }
+    });
+
     return () => {
       isMounted = false;
+      unsubscribe();
     };
   }, []);
 
@@ -151,18 +161,24 @@ export const HomepageGalleryManager: React.FC<HomepageGalleryManagerProps> = ({
         setUploadStageText(`Uploading original file (${i + 1}/${total}): ${file.name}`);
 
         try {
-          const res = await uploadToCloudinary(file, { folder: 'dare_arqam_gallery' });
+          const res = await uploadImageToCloudinary(file, 'gallery', {
+            customFolder: 'dare_arqam_gallery',
+            onProgress: (percent) => {
+              const currentOverall = Math.round(stepBase + (percent / total));
+              setUploadProgress(Math.min(currentOverall, 99));
+            }
+          });
           if (!res.success || !res.url) {
-            throw new Error(res.error || 'Upload failed');
+            throw new Error(res.error || 'Cloudinary upload failed');
           }
 
           const newSlide: GallerySlide = {
             id: `slide_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             url: res.url,
             publicId: res.publicId,
-            width: res.width,
-            height: res.height,
-            aspectRatio: res.width && res.height ? res.width / res.height : 1.7778,
+            width: res.width || 1920,
+            height: res.height || 1080,
+            aspectRatio: res.width && res.height ? Number((res.width / res.height).toFixed(4)) : 1.7778,
             fileSizeKB: res.bytes ? Math.round(res.bytes / 1024) : Math.round(file.size / 1024),
             format: res.format || file.type.split('/')[1] || 'jpeg',
             title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
@@ -176,7 +192,7 @@ export const HomepageGalleryManager: React.FC<HomepageGalleryManagerProps> = ({
           newUploadedSlides.push(newSlide);
           setUploadProgress(Math.round(((i + 1) / total) * 100));
         } catch (itemErr: any) {
-          console.error(`Error uploading ${file.name}:`, itemErr);
+          console.error(`Error uploading ${file.name} to Cloudinary:`, itemErr);
           itemErrors.push(`${file.name}: ${itemErr?.message || 'Upload failed'}`);
         }
       }

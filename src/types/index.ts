@@ -147,6 +147,7 @@ export interface GallerySlide {
   order: number;
   enabled: boolean;
   createdAt: string;
+  storagePath?: string;
   width?: number;
   height?: number;
   aspectRatio?: number;
@@ -191,6 +192,8 @@ export interface StudentProfile {
   whatsappNumber: string;
   email: string;
   profileImageUrl?: string;
+  profileImagePublicId?: string;
+  status?: 'active' | 'inactive' | 'suspended';
   studentId?: string;
   qrIdentity?: StudentQrIdentity;
   createdAt: string;

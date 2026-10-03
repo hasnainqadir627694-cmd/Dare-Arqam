@@ -13,7 +13,8 @@ import {
   RefreshCw,
   UserPlus,
   ArrowLeft,
-  KeyRound
+  KeyRound,
+  LogIn
 } from 'lucide-react';
 import { 
   loginStudentWithFirebase, 
@@ -258,16 +259,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-[#20216B] hover:bg-[#171852] text-[#FFF000] font-extrabold rounded-xl shadow-lg border border-[#F5D900]/40 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50 text-sm mt-2"
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-[#171852] via-[#20216B] to-[#171852] hover:from-[#20216B] hover:to-[#292A86] text-[#FFF000] font-extrabold rounded-xl border-2 border-[#FFF000] shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50 text-sm mt-3"
             >
               {isLoading ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-[#FFF000]" />
-                  <span>Authenticating with Firebase...</span>
+                  <span>Authenticating...</span>
                 </>
               ) : (
                 <>
-                  <span>Sign In to Student Dashboard</span>
+                  <LogIn className="w-4 h-4 text-[#FFF000]" />
+                  <span>Login</span>
                   <ArrowRight className="w-4 h-4 text-[#FFF000]" />
                 </>
               )}
@@ -290,9 +292,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('student-register')}
-              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-[#20216B] border border-slate-300 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-[#EEF0FF] text-[#171852] border border-[#20216B]/30 hover:border-[#20216B] font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shadow-sm"
             >
-              <UserPlus className="w-3.5 h-3.5 text-[#20216B]" />
+              <UserPlus className="w-4 h-4 text-[#20216B]" />
               <span>Create New Student Account</span>
             </button>
           </div>

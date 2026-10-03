@@ -86,7 +86,7 @@ export const StudentIdCardBack: React.FC<StudentIdCardBackProps> = ({
   // If a custom uploaded template back image is present (or default template)
   return (
     <div
-      className={`relative w-full rounded-2xl overflow-hidden shadow-2xl border-2 border-[#20216B] bg-[#0A0D18] select-none transition-all print:border print:shadow-none ${className}`}
+      className={`relative w-full rounded-2xl overflow-hidden shadow-[0_0_24px_rgba(255,240,0,0.35),0_12px_28px_rgba(23,24,82,0.35)] border-2 border-[#20216B] ring-2 ring-[#FFF000]/60 bg-[#0A0D18] select-none transition-all print:border print:shadow-none ${className}`}
       style={{ aspectRatio: `${activeAspectRatio}` }}
     >
       {/* 1. Background Template Image */}

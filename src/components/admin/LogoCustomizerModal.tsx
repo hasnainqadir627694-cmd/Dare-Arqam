@@ -450,7 +450,7 @@ export const LogoCustomizerModal: React.FC<LogoCustomizerModalProps> = ({
     try {
       const highResDataUrl = generateExportDataUrl(1024);
 
-      // Permanently save across static assets, Firebase Storage, and Firestore
+      // Permanently save across Cloudinary CDN and Firestore
       const res = await saveWebsiteLogo(highResDataUrl, { cropShape, bgMode, ringColor });
       const finalUrl = res.url || highResDataUrl;
 

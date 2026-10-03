@@ -121,36 +121,36 @@ export const StudentIdCard: React.FC<StudentIdCardProps> = ({
               onClick={() => setCardSide('both')}
               className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 cardSide === 'both'
-                  ? 'bg-[#20216B] text-[#FFF000] shadow-xs'
+                  ? 'bg-[#171852] text-[#FFF000] border border-[#FFF000] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>Front & Back</span>
+              <span>Both</span>
             </button>
             <button
               type="button"
               onClick={() => setCardSide('front')}
               className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 cardSide === 'front'
-                  ? 'bg-[#20216B] text-[#FFF000] shadow-xs'
+                  ? 'bg-[#171852] text-[#FFF000] border border-[#FFF000] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <IdCard className="w-3.5 h-3.5" />
-              <span>Front Side</span>
+              <span>Front</span>
             </button>
             <button
               type="button"
               onClick={() => setCardSide('back')}
               className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 cardSide === 'back'
-                  ? 'bg-[#20216B] text-[#FFF000] shadow-xs'
+                  ? 'bg-[#171852] text-[#FFF000] border border-[#FFF000] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <QrCode className="w-3.5 h-3.5" />
-              <span>Back (QR)</span>
+              <span>Back</span>
             </button>
           </div>
         </div>
@@ -164,7 +164,7 @@ export const StudentIdCard: React.FC<StudentIdCardProps> = ({
                 onClick={() => setCardDisplayMode('template')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                   cardDisplayMode === 'template'
-                    ? 'bg-[#20216B] text-[#FFF000] shadow-xs'
+                    ? 'bg-[#171852] text-[#FFF000] shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -175,7 +175,7 @@ export const StudentIdCard: React.FC<StudentIdCardProps> = ({
                 onClick={() => setCardDisplayMode('classic')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                   cardDisplayMode === 'classic'
-                    ? 'bg-[#20216B] text-[#FFF000] shadow-xs'
+                    ? 'bg-[#171852] text-[#FFF000] shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -216,7 +216,7 @@ export const StudentIdCard: React.FC<StudentIdCardProps> = ({
       {/* RENDER: FRONT SIDE (MODE 1: DYNAMIC UPLOADED TEMPLATE ID CARD) */}
       {/* ========================================================================= */}
       {cardSide !== 'back' && cardDisplayMode === 'template' && (
-        <div className="relative mx-auto rounded-2xl overflow-hidden shadow-2xl border-2 border-[#20216B] max-w-[380px] w-full select-none bg-white transition-all print:border print:shadow-none">
+        <div className="relative mx-auto rounded-2xl overflow-hidden shadow-[0_0_24px_rgba(255,240,0,0.35),0_12px_28px_rgba(23,24,82,0.35)] border-2 border-[#20216B] ring-2 ring-[#FFF000]/60 max-w-[380px] w-full select-none bg-white transition-all print:border print:shadow-none">
           {/* Outer Aspect Ratio Frame */}
           <div 
             className="relative w-full overflow-hidden"
@@ -406,7 +406,7 @@ export const StudentIdCard: React.FC<StudentIdCardProps> = ({
       {/* MODE 2: CLASSIC INSTITUTIONAL DOSSIER CARD (FRONT) */}
       {/* ========================================================================= */}
       {cardSide !== 'back' && cardDisplayMode === 'classic' && (
-        <div className="relative bg-white rounded-2xl border-2 border-[#20216B] shadow-2xl overflow-hidden print:border print:shadow-none transition-all max-w-[440px] mx-auto">
+        <div className="relative bg-white rounded-2xl border-2 border-[#20216B] shadow-[0_0_24px_rgba(255,240,0,0.35),0_12px_28px_rgba(23,24,82,0.35)] ring-2 ring-[#FFF000]/60 overflow-hidden print:border print:shadow-none transition-all max-w-[440px] mx-auto">
           {/* Top Institutional Header Band */}
           <div className="bg-gradient-to-r from-[#171852] via-[#20216B] to-[#2E3192] text-white px-5 py-4 border-b-2 border-[#F5D900]">
             <div className="flex items-center justify-between gap-3">

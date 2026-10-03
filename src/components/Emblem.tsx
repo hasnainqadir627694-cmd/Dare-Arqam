@@ -21,7 +21,7 @@ export const Emblem: React.FC<EmblemProps> = ({ className = '', size = 'md', cus
   };
 
   const currentSize = sizeMap[size];
-  const glowClass = neonGlow ? 'neon-glow-gold ring-2 ring-[#FFF000]' : 'ring-1 ring-[#FFF000]/60';
+  const glowClass = neonGlow ? 'ring-2 ring-[#FFF000] shadow-[0_0_8px_rgba(255,240,0,0.65)]' : 'ring-1 ring-[#FFF000]/60';
 
   // Render official custom or permanent project logo
   if (activeLogo && !imgError) {

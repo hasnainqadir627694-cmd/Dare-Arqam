@@ -1,3 +1,13 @@
+# DARE ARQAM School System - Firestore Security Rules Documentation
+
+## Overview
+This document specifies the Firestore Security Rules (`firestore.rules`) deployed to the Cloud Firestore project.
+
+---
+
+## Declarative Security Rules (`firestore.rules`)
+
+```solidity
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,16 +21,8 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function incoming() {
-      return request.resource.data;
-    }
-    
-    function existing() {
-      return resource.data;
-    }
-
     function hasNoPassword() {
-      return !('password' in incoming()) && !('passwordHash' in incoming());
+      return !('password' in request.resource.data) && !('passwordHash' in request.resource.data);
     }
 
     function isAdmin() {
@@ -40,7 +42,7 @@ service cloud.firestore {
       );
     }
 
-    // System & Backend Health Diagnostics (Open for verification & status pings)
+    // System & Backend Health Diagnostics (Public write/read for health checks)
     match /system/{docId} {
       allow read, write: if true;
     }
@@ -51,13 +53,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // 2. Examination Results (Publicly readable for roll-number lookup; Controller of Examinations managed)
+    // 2. Examination Results (Publicly readable; Controller managed)
     match /results/{resultId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 3. Students Profiles (STRICT USER DATA ISOLATION: Owner Student or Admin ONLY)
+    // 3. Student Profiles (STRICT USER DATA ISOLATION: Owner Student or Admin ONLY)
     match /students/{studentDocId} {
       allow read: if isSignedIn() && (isOwner(studentDocId) || isAdmin());
       allow create: if isSignedIn() && (isOwner(studentDocId) || isAdmin()) && hasNoPassword();
@@ -70,7 +72,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 4. Admission Applications (Public prospective parents submit; Owner applicant or Admin read)
+    // 4. Admission Applications (Public submit; Owner applicant or Admin read)
     match /admissions_applications/{appId} {
       allow create: if true && hasNoPassword();
       allow read: if isAdmin() || (isSignedIn() && resource.data.applicantUid == request.auth.uid);
@@ -84,114 +86,46 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // 6. Events & Co-Curricular Calendar (Public read; Admin write)
+    // 6. Events & Downloads (Public read; Admin write)
     match /events/{eventId} {
       allow read: if true;
       allow write: if isAdmin();
     }
-
-    // 6b. News & Press Releases (Public read; Admin write)
-    match /news/{newsId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // 6c. Academic Downloads & Official Documents (Public read; Admin write)
     match /documents/{docId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    match /downloads/{downloadId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // 7. System Settings & Branding (Public read; Signed-in admin write)
+    // 7. System Settings & Branding (Public read; Admin write)
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
-
     match /pages/{pageId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
-    match /branding/{docId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    match /banners/{bannerId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // 8. Homepage Gallery Slides (Public read; Admin write)
+    // 8. Gallery Slides (Public read; Admin write)
     match /gallery_slides/{slideId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
-    match /gallery/{slideId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // 9. Academic Information (Fee structures, calendars, faculty)
-    match /academicInformation/{docId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // 10. Dynamic Student ID Card Templates (Public read; Admin write)
+    // 9. ID Card Templates (Public read; Admin write)
     match /idCardTemplates/{templateId} {
       allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    match /id_card_templates/{templateId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // 11. Permanent Student QR Tokens (Public read for barcode camera scanners; protected writes)
-    match /qr_tokens/{tokenId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // 12. Central Global Media Library
-    match /media/{mediaId} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 13. Student Attendance Records
-    match /attendance/{attendanceId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    // 14. Administrative User Roles & Audit Logs
+    // 10. Administrative User Roles & Audit Logs (Protected)
     match /admins/{adminId} {
       allow read: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
       allow write: if isAdmin();
     }
-
-    match /adminUsers/{adminId} {
-      allow read: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
-      allow write: if isAdmin();
-    }
-
     match /adminLogs/{logId} {
       allow read, write: if isAdmin();
     }
-
-    // 15. Connectivity Verification
-    match /test/{docId} {
-      allow read, write: if true;
-    }
   }
 }
+```

@@ -4,7 +4,7 @@ import { NOTICES_DATA, INSTITUTION_INFO } from '../data/mockData';
 import { NoticeCard } from '../components/NoticeCard';
 import { Emblem } from '../components/Emblem';
 import { Search, Filter, Calendar, Building, Printer, ArrowLeft, Download, Bookmark } from 'lucide-react';
-import { fetchNotices } from '../services/firebaseService';
+import { fetchNotices, subscribeNotices } from '../services/firebaseService';
 
 interface NoticeBoardViewProps {
   selectedNotice: Notice | null;
@@ -28,9 +28,15 @@ export const NoticeBoardView: React.FC<NoticeBoardViewProps> = ({
           setNotices(data);
         }
       })
-      .catch(() => {
-        // Fallback already set to NOTICES_DATA
-      });
+      .catch(() => {});
+
+    const unsubscribe = subscribeNotices((data) => {
+      if (data && data.length > 0) {
+        setNotices(data);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const categories = ['All', 'Admissions', 'Examination', 'Academic', 'Administrative', 'General'];

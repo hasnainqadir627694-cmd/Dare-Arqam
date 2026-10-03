@@ -18,7 +18,14 @@ import {
   GraduationCap,
   User,
   Award,
-  ShieldCheck
+  ShieldCheck,
+  Bell,
+  Calendar,
+  PhoneCall,
+  FileText,
+  Compass,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -28,7 +35,6 @@ interface HomeViewProps {
 
 export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
   const { 
-    logoUrl, 
     bannerUrl, 
     institutionName, 
     tagline,
@@ -42,10 +48,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-10 sm:space-y-14 pb-12">
-      {/* 1. HERO / BANNER SECTION WITH CENTER ROUND LOGO */}
-      <section className="relative overflow-hidden bg-[#171852] border-b-2 border-[#F5D900]/40 shadow-xl">
+      {/* 1. HERO / BANNER SECTION WITH CENTER ROUND LOGO & NEON RADIANCE */}
+      <section className="relative overflow-hidden bg-[#171852] border-b-2 border-[#F5D900]/50 shadow-2xl">
         {/* Background Cover Banner */}
-        <div className="relative w-full h-28 sm:h-48 md:h-64 lg:h-80 bg-[#0F1035] overflow-hidden">
+        <div className="relative w-full h-32 sm:h-52 md:h-64 lg:h-80 bg-[#0F1035] overflow-hidden">
           <img
             src={bannerUrl || DEFAULT_CAMPUS_BANNER}
             alt="DAR - E - ARQAM Campus Hero Banner"
@@ -53,34 +59,36 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             referrerPolicy="no-referrer"
           />
           {/* Smooth Bottom Blue Color Fading Gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#171852] via-[#171852]/40 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#171852] via-[#171852]/60 to-transparent" />
         </div>
 
         {/* Hero Content Block Overlapping the Banner */}
-        <div className="relative max-w-5xl mx-auto px-3 sm:px-6 pb-6 sm:pb-10 md:pb-14 text-center">
-          {/* CENTER ROUND LOGO FLANKED BY URDU CALLIGRAPHY MOTTO */}
-          <div className="-mt-8 sm:-mt-12 md:-mt-16 lg:-mt-20 flex items-center justify-center gap-2 sm:gap-4 md:gap-6 mb-2.5 sm:mb-3.5 relative z-20 px-1 sm:px-4">
-            {/* Left Box (Green highlight): بہترین آخرت */}
+        <div className="relative max-w-5xl mx-auto px-3 sm:px-6 pb-6 sm:pb-10 md:pb-12 text-center">
+          {/* CENTER ROUND LOGO FLANKED BY URDU CALLIGRAPHY MOTTO WITH ATTRACTIVE NEON GLOW */}
+          <div className="-mt-10 sm:-mt-14 md:-mt-18 lg:-mt-22 flex items-center justify-center gap-2 sm:gap-4 md:gap-8 mb-3 sm:mb-4 relative z-20 px-1 sm:px-4">
+            {/* Left Box: بہترین آخرت (No text glow) */}
             <div className="flex-1 flex justify-end items-center pr-1 sm:pr-3 overflow-visible">
               <span 
-                className="font-jameel-kasheeda text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-[#FFF000] drop-shadow-[0_2px_14px_rgba(0,0,0,0.95)] whitespace-nowrap select-none transition-transform hover:scale-105 py-1"
+                className="font-jameel-kasheeda text-base xs:text-lg sm:text-3xl md:text-4xl lg:text-5xl font-bold text-[#FFF000] whitespace-nowrap select-none transition-transform hover:scale-105 py-1"
                 dir="rtl"
               >
                 بہترین آخرت
               </span>
             </div>
 
-            {/* Central Round Logo (Radiant Neon Glow & Classic Heritage Aura) */}
-            <div className="rounded-full neon-glow-gold-pulse ring-2 ring-[#FFF000] transition-all hover:scale-105 shrink-0 z-10 overflow-hidden bg-[#171852] shadow-2xl">
-              <div className="w-18 h-18 sm:w-24 sm:h-24 md:w-32 md:h-32 lg:w-40 lg:h-40 rounded-full overflow-hidden flex items-center justify-center select-none p-0.5">
-                <Emblem size="xl" className="!w-full !h-full" neonGlow />
+            {/* Central Round Logo with Constant Non-Animated Small Glow on Border Only */}
+            <div className="relative group shrink-0 z-10">
+              <div className="relative rounded-full ring-2 ring-[#FFF000] shadow-[0_0_8px_rgba(255,240,0,0.65)] transition-all overflow-hidden bg-[#171852]">
+                <div className="w-20 h-20 sm:w-28 sm:h-28 md:w-36 md:h-36 lg:w-44 lg:h-44 rounded-full overflow-hidden flex items-center justify-center select-none p-1">
+                  <Emblem size="xl" className="!w-full !h-full" />
+                </div>
               </div>
             </div>
 
-            {/* Right Box (Red highlight): خوبصورت دنیا */}
+            {/* Right Box: خوبصورت دنیا (No text glow) */}
             <div className="flex-1 flex justify-start items-center pl-1 sm:pl-3 overflow-visible">
               <span 
-                className="font-jameel-kasheeda text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-[#FFF000] drop-shadow-[0_2px_14px_rgba(0,0,0,0.95)] whitespace-nowrap select-none transition-transform hover:scale-105 py-1"
+                className="font-jameel-kasheeda text-base xs:text-lg sm:text-3xl md:text-4xl lg:text-5xl font-bold text-[#FFF000] whitespace-nowrap select-none transition-transform hover:scale-105 py-1"
                 dir="rtl"
               >
                 خوبصورت دنیا
@@ -88,12 +96,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          {/* Underneath Logo: DAR - E - ARQAM Title, Subtitle, & Description */}
-          <div className="space-y-2.5 sm:space-y-3.5 max-w-3xl mx-auto">
+          {/* Underneath Logo: Title, Tagline & Minimal Heritage Description */}
+          <div className="space-y-2 sm:space-y-3 max-w-3xl mx-auto">
             {/* Accreditation Badge */}
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-mono tracking-wider uppercase bg-[#20216B] text-[#FFF000] border border-[#F5D900]/40 font-bold shadow-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FFF000] animate-pulse" />
-              <span>Registered Institution · Est. 1998</span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1 rounded-full text-[10px] sm:text-xs font-mono tracking-wider uppercase bg-[#20216B] text-[#FFF000] border border-[#F5D900]/40 font-bold shadow-md">
+              <Sparkles className="w-3 h-3 text-[#FFF000] animate-pulse" />
+              <span>Registered · Est. 1998 · Katlang</span>
             </div>
 
             {/* Main Title */}
@@ -106,17 +114,17 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               {tagline}
             </div>
 
-            {/* Institutional Summary */}
-            <p className="text-xs sm:text-sm text-[#EEF0FF]/90 font-prose-serif leading-relaxed max-w-2xl mx-auto font-normal px-2">
-              A premier Pakistani educational institution committed to rigorous academic discipline, scientific inquiry, and the moral foundation of students from primary grades through matriculation and higher secondary levels.
+            {/* Concise Classic Epithet */}
+            <p className="text-xs sm:text-sm text-[#EEF0FF]/90 font-prose-serif leading-relaxed max-w-xl mx-auto font-normal px-2">
+              Synthesizing Islamic ethical character, modern scientific inquiry, and board academic excellence.
             </p>
 
-            {/* Primary & Secondary Call to Actions - One-Word Icon-Rich Language with Radiant Neon Glow */}
-            <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3.5">
+            {/* One-Word Icon-Centric Primary Action Tiles */}
+            <div className="pt-3 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={() => onNavigate('admission-info')}
-                className="px-5 py-2.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-extrabold text-[#171852] bg-[#FFF000] hover:bg-[#F5D900] neon-glow-gold rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer active:scale-95 border-2 border-[#F5D900]"
+                className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold text-[#171852] bg-[#FFF000] hover:bg-[#F5D900] rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer active:scale-95 border-2 border-[#F5D900]"
               >
                 <GraduationCap className="w-4 h-4 text-[#171852]" />
                 <span>Admissions</span>
@@ -126,7 +134,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => onNavigate('student-login')}
-                className="px-5 py-2.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-bold text-white bg-[#20216B] hover:bg-[#2A2C8A] border-2 border-[#FFF000]/70 rounded-xl transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
+                className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-white bg-[#20216B] hover:bg-[#2A2C8A] border-2 border-[#FFF000] rounded-xl transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
               >
                 <User className="w-4 h-4 text-[#FFF000]" />
                 <span>Portal</span>
@@ -135,14 +143,32 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => onNavigate('results')}
-                className="px-5 py-2.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-[#EEF0FF] hover:text-white bg-white/10 hover:bg-white/20 border border-white/30 rounded-xl transition-all cursor-pointer active:scale-95 flex items-center gap-2"
+                className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-[#EEF0FF] hover:text-white bg-[#292A86]/70 hover:bg-[#292A86] border border-[#F5D900]/60 hover:border-[#FFF000] rounded-xl transition-all cursor-pointer active:scale-95 flex items-center gap-2 hover:shadow-[0_0_15px_rgba(255,240,0,0.35)]"
               >
                 <Award className="w-4 h-4 text-[#FFF000]" />
                 <span>Results</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('notices')}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-[#EEF0FF] hover:text-white bg-white/10 hover:bg-white/20 border border-white/25 hover:border-[#FFF000]/60 rounded-xl transition-all cursor-pointer active:scale-95 flex items-center gap-2 hover:shadow-[0_0_15px_rgba(255,240,0,0.3)]"
+              >
+                <Bell className="w-4 h-4 text-[#FFF000]" />
+                <span>Notices</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('contact')}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-[#EEF0FF] hover:text-white bg-white/10 hover:bg-white/20 border border-white/25 hover:border-[#FFF000]/60 rounded-xl transition-all cursor-pointer active:scale-95 flex items-center gap-2"
+              >
+                <PhoneCall className="w-4 h-4 text-[#FFF000]" />
+                <span>Contact</span>
+              </button>
             </div>
 
-            {/* Social Media Strip (Single Row on Mobile & Desktop) */}
+            {/* Social Media Strip (Clean Icon Row) */}
             {(() => {
               const items = [
                 {
@@ -207,7 +233,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               if (items.length === 0) return null;
 
               return (
-                <div className="pt-3.5 sm:pt-4 border-t border-white/20 flex flex-row flex-nowrap items-center justify-center gap-2 sm:gap-4 overflow-x-auto max-w-full">
+                <div className="pt-3 border-t border-white/20 flex flex-row flex-nowrap items-center justify-center gap-2 sm:gap-3 overflow-x-auto max-w-full">
                   {items.map(item => (
                     <a
                       key={item.key}
@@ -216,12 +242,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                       rel="noopener noreferrer"
                       aria-label={item.ariaLabel}
                       title={item.name}
-                      className="px-2.5 sm:px-3.5 py-1.5 bg-[#20216B]/90 hover:bg-[#2A2C8A] border border-[#F5D900]/40 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-semibold text-[#EEF0FF] hover:text-white transition-all shadow-sm flex items-center gap-1.5 sm:gap-2 group cursor-pointer shrink-0"
+                      className="px-2.5 py-1 bg-[#20216B]/90 hover:bg-[#2A2C8A] border border-[#F5D900]/40 rounded-lg text-[11px] sm:text-xs font-semibold text-[#EEF0FF] hover:text-white transition-all shadow-sm flex items-center gap-1.5 cursor-pointer shrink-0 hover:border-[#FFF000]"
                     >
                       {item.icon}
-                      <span className="group-hover:underline font-bold">
-                        {item.name}
-                      </span>
+                      <span className="font-bold">{item.name}</span>
                     </a>
                   ))}
                 </div>
@@ -231,13 +255,75 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 2. PRINCIPAL'S MESSAGE SECTION */}
+      {/* 2. CLASSIC INSTITUTIONAL STATS (ONE-WORD & ICON CENTRIC) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="bg-gradient-to-r from-[#171852] via-[#20216B] to-[#292A86] text-white border-2 border-[#F5D900]/40 rounded-2xl p-4 sm:p-8 shadow-2xl">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
+          {[
+            { metric: '100%', label: 'Merit', icon: Award },
+            { metric: '25+', label: 'Years', icon: ShieldCheck },
+            { metric: '100%', label: 'Tarbiya', icon: Moon },
+            { metric: '30+', label: 'Scholars', icon: Users },
+          ].map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <div
+                key={stat.label}
+                className="bg-gradient-to-br from-[#171852] to-[#20216B] border border-[#F5D900]/40 hover:border-[#FFF000] p-3 sm:p-4 rounded-xl text-center text-white shadow-md flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_15px_rgba(255,240,0,0.25)]"
+              >
+                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-lg bg-[#FFF000]/15 text-[#FFF000] flex items-center justify-center shrink-0 border border-[#FFF000]/30">
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <div className="font-editorial text-lg sm:text-2xl font-black text-[#FFF000] leading-none">
+                    {stat.metric}
+                  </div>
+                  <div className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-[#EEF0FF] mt-0.5">
+                    {stat.label}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 3. CLASSIC ICONIC QUICK DIRECTORY (ONE-WORD & ICON CENTRIC) */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 sm:gap-3.5">
+          {[
+            { id: 'academics' as PageId, label: 'Curriculum', icon: BookOpen },
+            { id: 'faculty' as PageId, label: 'Faculty', icon: Users },
+            { id: 'results' as PageId, label: 'Results', icon: Award },
+            { id: 'events' as PageId, label: 'Calendar', icon: Calendar },
+            { id: 'downloads' as PageId, label: 'Prospectus', icon: FileText },
+            { id: 'contact' as PageId, label: 'Contact', icon: PhoneCall },
+          ].map((tile) => {
+            const Icon = tile.icon;
+            return (
+              <button
+                key={tile.id}
+                onClick={() => onNavigate(tile.id)}
+                className="neon-card-interactive p-3 sm:p-4 bg-white rounded-xl border border-[#CBD5E1] shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-[#EEF0FF] text-[#20216B] group-hover:bg-[#171852] group-hover:text-[#FFF000] flex items-center justify-center transition-colors shadow-xs">
+                  <Icon className="w-5 h-5" />
+                </div>
+                <span className="font-editorial text-xs sm:text-sm font-bold text-[#0F1035] group-hover:text-[#20216B] transition-colors">
+                  {tile.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 4. PRINCIPAL'S ADDRESS (CLASSIC PRESTIGE WITH GOLD NEON BORDER) */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="bg-gradient-to-r from-[#171852] via-[#20216B] to-[#292A86] text-white border-2 border-[#F5D900] neon-border-gold rounded-2xl p-4 sm:p-8 shadow-2xl">
           <div className="flex flex-row gap-4 sm:gap-8 items-center">
             {/* Principal Photo & Identity (Left) */}
-            <div className="w-32 sm:w-48 md:w-56 shrink-0 space-y-2 text-left">
-              <div className="relative w-full h-36 sm:h-52 md:h-60 rounded-xl overflow-hidden border-2 border-[#F5D900] shadow-lg bg-[#EEF0FF]">
+            <div className="w-28 sm:w-44 md:w-52 shrink-0 space-y-2 text-left">
+              <div className="relative w-full h-32 sm:h-48 md:h-56 rounded-xl overflow-hidden border-2 border-[#F5D900] shadow-lg bg-[#EEF0FF]">
                 <img
                   src={principalPhotoUrl || DEFAULT_PRINCIPAL_PHOTO}
                   alt={principalName}
@@ -245,45 +331,45 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                   referrerPolicy="no-referrer"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 <div className="font-editorial text-xs sm:text-sm md:text-base font-bold text-white leading-tight">
                   {principalName}
                 </div>
                 <div>
-                  <span className="inline-block px-1.5 py-0.5 rounded bg-[#FFF000]/20 border border-[#FFF000]/40 text-[10px] sm:text-xs text-[#FFF000] font-extrabold uppercase tracking-wider">
+                  <span className="inline-block px-1.5 py-0.5 rounded bg-[#FFF000]/20 border border-[#FFF000]/40 text-[10px] text-[#FFF000] font-extrabold uppercase tracking-wider">
                     {principalTitle || 'Principal'}
                   </span>
                 </div>
-                <div className="text-[10px] sm:text-xs text-[#FFF9B8] font-prose-serif font-medium leading-relaxed line-clamp-2">
+                <div className="text-[10px] text-[#FFF9B8] font-prose-serif font-medium leading-tight line-clamp-1">
                   {principalQualification}
                 </div>
               </div>
             </div>
 
             {/* Message Body (Right Side) */}
-            <div className="flex-1 space-y-2.5 sm:space-y-3">
+            <div className="flex-1 space-y-2 sm:space-y-2.5">
               <div className="text-[10px] sm:text-xs font-bold text-[#FFF000] tracking-wider uppercase flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#FFF000]" />
-                <span>Executive Leadership & Communique</span>
+                <span className="w-2 h-2 rounded-full bg-[#FFF000] animate-pulse" />
+                <span>Executive Leadership</span>
               </div>
-              <h2 className="font-editorial text-lg sm:text-2xl md:text-3xl font-bold text-white leading-tight">
-                Message from the Principal
+              <h2 className="font-editorial text-lg sm:text-2xl font-bold text-white leading-tight">
+                Principal's Address
               </h2>
 
-              <blockquote className="border-l-2 sm:border-l-4 border-[#F5D900] pl-2.5 sm:pl-4 text-[#FFF9B8] text-xs sm:text-sm md:text-base font-prose-serif italic leading-relaxed bg-black/20 py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-r-xl">
-                “{principalMessage || 'In an age of rapid technological transition, true education is not merely the accumulation of facts, but the disciplined training of the intellect and the nurturing of a conscience anchored in timeless moral virtues. At DAR - E - ARQAM, our educators strive tirelessly to ensure every young mind that walks through our gates emerges equipped to excel globally while holding firm to their national and spiritual roots.'}”
+              <blockquote className="border-l-2 sm:border-l-4 border-[#F5D900] pl-2.5 sm:pl-3 text-[#FFF9B8] text-xs sm:text-sm font-prose-serif italic leading-relaxed bg-black/20 py-2 px-2.5 rounded-r-xl">
+                “{principalMessage || 'True education is not merely the accumulation of facts, but the disciplined training of the intellect and the nurturing of a conscience anchored in timeless moral virtues.'}”
               </blockquote>
 
-              <p className="text-xs sm:text-sm text-[#EEF0FF] font-prose-serif leading-relaxed line-clamp-3 sm:line-clamp-none">
-                We invite parents to partner actively with our faculty in shaping the future trajectory of their children, creating an academic journey marked by curiosity, perseverance, and mutual respect.
+              <p className="text-xs text-[#EEF0FF] font-prose-serif leading-relaxed hidden sm:block">
+                We invite parents to partner actively with our faculty in shaping minds marked by curiosity, perseverance, and civic honor.
               </p>
 
               <div>
                 <button
                   onClick={() => onNavigate('principal-message')}
-                  className="px-3.5 sm:px-4 py-1.5 sm:py-2 bg-[#FFF000] hover:bg-[#F5D900] text-[#171852] text-[10px] sm:text-xs font-extrabold rounded-lg inline-flex items-center gap-1 shadow-md cursor-pointer transition-all active:scale-95"
+                  className="px-3.5 py-1.5 bg-[#FFF000] hover:bg-[#F5D900] text-[#171852] text-xs font-extrabold rounded-lg inline-flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95 neon-glow-gold"
                 >
-                  <span>Read Full Address</span>
+                  <span>Address</span>
                   <ChevronRight className="w-3.5 h-3.5 text-[#171852]" />
                 </button>
               </div>
@@ -292,113 +378,95 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 4. AT DARE ARQAM, WE FOCUS ON (CORE INSTITUTIONAL FOCUS - 5 GRADIENT CARDS) */}
+      {/* 5. CORE PILLARS (LESSER TEXT, ICON-LANGUAGE & NEON GLOW CARDS) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="mb-6 pb-3 border-b-2 border-[#CBD5E1]">
-          <div className="text-xs font-extrabold text-[#20216B] tracking-wider uppercase mb-1 flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#F5D900]" />
-            <span>Institutional Priorities</span>
+        <div className="mb-5 pb-2.5 border-b-2 border-[#CBD5E1] flex items-center justify-between">
+          <div>
+            <div className="text-xs font-extrabold text-[#20216B] tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#F5D900]" />
+              <span>Priorities</span>
+            </div>
+            <h2 className="font-editorial text-2xl sm:text-3xl font-bold text-[#0F1035]">
+              Core Pillars
+            </h2>
           </div>
-          <h2 className="font-editorial text-2xl sm:text-3xl font-bold text-[#0F1035]">
-            At DARE ARQAM, We Focus On
-          </h2>
+          <span className="text-xs font-mono font-bold text-[#20216B] uppercase tracking-wider hidden sm:inline">
+            5 Foundational Virtues
+          </span>
         </div>
 
-        {/* 5 Cards Grid: 2 cards on row 1, 2 cards on row 2, 1 card centered on row 3 (consistent on mobile & laptop) */}
-        <div className="grid grid-cols-2 gap-3 sm:gap-6">
-          {/* 1. Quality Education */}
-          <div 
-            style={{ animationDelay: '80ms' }}
-            className="animate-fade-in-up bg-gradient-to-br from-[#171852] via-[#20216B] to-[#2D3092] text-white border-2 border-[#D4AF37]/50 hover:border-[#FFF000] rounded-xl sm:rounded-2xl p-3.5 sm:p-7 shadow-md hover:shadow-xl transition-all flex flex-col justify-start group"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3.5 mb-2.5 sm:mb-3.5">
-              <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#FFF000]/15 text-[#FFF000] border border-[#FFF000]/40 flex items-center justify-center shrink-0 group-hover:bg-[#FFF000] group-hover:text-[#171852] transition-colors shadow-sm">
-                <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
-              </div>
-              <h3 className="font-editorial text-xs sm:text-base md:text-lg font-bold text-[#FFF000] uppercase tracking-wide leading-snug group-hover:text-[#FFF9B8] transition-colors">
-                Quality Education
-              </h3>
-            </div>
-            <p className="text-[11px] sm:text-sm text-white leading-relaxed font-prose-serif font-normal">
-              Providing students with a strong academic foundation and encouraging them to develop a lifelong love for learning.
-            </p>
-          </div>
+        {/* 5 Classic Heraldic Icon Cards with Neon-glow hover */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+          {[
+            {
+              title: 'Academics',
+              motto: 'Rigorous standards & STEM curiosity',
+              icon: BookOpen,
+              badge: 'Excellence',
+            },
+            {
+              title: 'Ethics',
+              motto: 'Islamic virtues & moral character',
+              icon: Moon,
+              badge: 'Values',
+            },
+            {
+              title: 'Faculty',
+              motto: 'Dedicated mentors & master scholars',
+              icon: Users,
+              badge: 'Scholars',
+            },
+            {
+              title: 'Discipline',
+              motto: 'Honor, civic respect & self-mastery',
+              icon: Target,
+              badge: 'Honor',
+            },
+            {
+              title: 'Partnership',
+              motto: 'Collaborative parent-educator trust',
+              icon: Handshake,
+              badge: 'Trust',
+            },
+          ].map((pillar, idx) => {
+            const Icon = pillar.icon;
+            const isLast = idx === 4;
+            return (
+              <div
+                key={pillar.title}
+                className={`neon-card-interactive bg-gradient-to-br from-[#171852] via-[#20216B] to-[#2D3092] text-white border-2 border-[#D4AF37]/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-md flex flex-col justify-between group ${
+                  isLast ? 'col-span-2 md:col-span-1' : ''
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[#FFF000]/15 text-[#FFF000] border border-[#FFF000]/40 flex items-center justify-center shrink-0 group-hover:bg-[#FFF000] group-hover:text-[#171852] transition-colors shadow-sm">
+                      <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                    </div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-[#FFF9B8] border border-white/20">
+                      {pillar.badge}
+                    </span>
+                  </div>
 
-          {/* 2. Islamic & Moral Values */}
-          <div 
-            style={{ animationDelay: '160ms' }}
-            className="animate-fade-in-up bg-gradient-to-br from-[#171852] via-[#20216B] to-[#2D3092] text-white border-2 border-[#D4AF37]/50 hover:border-[#FFF000] rounded-xl sm:rounded-2xl p-3.5 sm:p-7 shadow-md hover:shadow-xl transition-all flex flex-col justify-start group"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3.5 mb-2.5 sm:mb-3.5">
-              <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#FFF000]/15 text-[#FFF000] border border-[#FFF000]/40 flex items-center justify-center shrink-0 group-hover:bg-[#FFF000] group-hover:text-[#171852] transition-colors shadow-sm">
-                <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
-              </div>
-              <h3 className="font-editorial text-xs sm:text-base md:text-lg font-bold text-[#FFF000] uppercase tracking-wide leading-snug group-hover:text-[#FFF9B8] transition-colors">
-                Islamic & Moral Values
-              </h3>
-            </div>
-            <p className="text-[11px] sm:text-sm text-white leading-relaxed font-prose-serif font-normal">
-              Education should build not only intelligent minds but also good human beings. We emphasize character building, honesty, respect, discipline, and Islamic values.
-            </p>
-          </div>
+                  <h3 className="font-editorial text-sm sm:text-lg font-bold text-[#FFF000] tracking-wide mb-1 group-hover:text-white transition-colors">
+                    {pillar.title}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#EEF0FF]/90 font-prose-serif">
+                    {pillar.motto}
+                  </p>
+                </div>
 
-          {/* 3. Dedicated Teachers */}
-          <div 
-            style={{ animationDelay: '240ms' }}
-            className="animate-fade-in-up bg-gradient-to-br from-[#171852] via-[#20216B] to-[#2D3092] text-white border-2 border-[#D4AF37]/50 hover:border-[#FFF000] rounded-xl sm:rounded-2xl p-3.5 sm:p-7 shadow-md hover:shadow-xl transition-all flex flex-col justify-start group"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3.5 mb-2.5 sm:mb-3.5">
-              <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#FFF000]/15 text-[#FFF000] border border-[#FFF000]/40 flex items-center justify-center shrink-0 group-hover:bg-[#FFF000] group-hover:text-[#171852] transition-colors shadow-sm">
-                <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+                <div className="mt-3 pt-2 border-t border-white/10 flex items-center gap-1.5 text-[11px] text-[#FFF9B8] font-bold">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#FFF000]" />
+                  <span>Institutional Standard</span>
+                </div>
               </div>
-              <h3 className="font-editorial text-xs sm:text-base md:text-lg font-bold text-[#FFF000] uppercase tracking-wide leading-snug group-hover:text-[#FFF9B8] transition-colors">
-                Dedicated Teachers
-              </h3>
-            </div>
-            <p className="text-[11px] sm:text-sm text-white leading-relaxed font-prose-serif font-normal">
-              Teachers are the backbone of any educational institution. We strive to provide our students with dedicated and responsible teachers who can guide them academically and morally.
-            </p>
-          </div>
-
-          {/* 4. Discipline & Character Building */}
-          <div 
-            style={{ animationDelay: '320ms' }}
-            className="animate-fade-in-up bg-gradient-to-br from-[#171852] via-[#20216B] to-[#2D3092] text-white border-2 border-[#D4AF37]/50 hover:border-[#FFF000] rounded-xl sm:rounded-2xl p-3.5 sm:p-7 shadow-md hover:shadow-xl transition-all flex flex-col justify-start group"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3.5 mb-2.5 sm:mb-3.5">
-              <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#FFF000]/15 text-[#FFF000] border border-[#FFF000]/40 flex items-center justify-center shrink-0 group-hover:bg-[#FFF000] group-hover:text-[#171852] transition-colors shadow-sm">
-                <Target className="w-4 h-4 sm:w-5 sm:h-5" />
-              </div>
-              <h3 className="font-editorial text-xs sm:text-base md:text-lg font-bold text-[#FFF000] uppercase tracking-wide leading-snug group-hover:text-[#FFF9B8] transition-colors">
-                Discipline & Character Building
-              </h3>
-            </div>
-            <p className="text-[11px] sm:text-sm text-white leading-relaxed font-prose-serif font-normal">
-              We believe that discipline is essential for success. Students are encouraged to become responsible, respectful, confident, and disciplined members of society.
-            </p>
-          </div>
-
-          {/* 5. Parents & School Partnership (Centered on Row 3 for both mobile and laptop) */}
-          <div 
-            style={{ animationDelay: '400ms' }}
-            className="animate-fade-in-up col-span-2 w-full max-w-2xl mx-auto bg-gradient-to-r from-[#171852] via-[#20216B] to-[#2D3092] text-white border-2 border-[#D4AF37]/50 hover:border-[#FFF000] rounded-xl sm:rounded-2xl p-3.5 sm:p-7 shadow-md hover:shadow-xl transition-all flex flex-col justify-start group"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3.5 mb-2.5 sm:mb-3.5">
-              <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#FFF000]/15 text-[#FFF000] border border-[#FFF000]/40 flex items-center justify-center shrink-0 group-hover:bg-[#FFF000] group-hover:text-[#171852] transition-colors shadow-sm">
-                <Handshake className="w-4 h-4 sm:w-5 sm:h-5" />
-              </div>
-              <h3 className="font-editorial text-xs sm:text-base md:text-lg font-bold text-[#FFF000] uppercase tracking-wide leading-snug group-hover:text-[#FFF9B8] transition-colors">
-                Parents & School Partnership
-              </h3>
-            </div>
-            <p className="text-[11px] sm:text-sm text-white leading-relaxed font-prose-serif font-normal">
-              The education of a child is a shared responsibility. We value the cooperation and trust of parents and believe that strong communication between parents and teachers leads to better student development.
-            </p>
-          </div>
+            );
+          })}
         </div>
       </section>
 
-      {/* 5. PREMIUM HORIZONTAL IMAGE SLIDER / GALLERY SECTION */}
+      {/* 6. CAMPUS GALLERY */}
       <HomepageGallery />
     </div>
   );

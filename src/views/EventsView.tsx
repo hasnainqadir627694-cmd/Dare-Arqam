@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageId, AcademicEvent } from '../types';
 import { EVENTS_DATA } from '../data/mockData';
+import { fetchEvents, subscribeEvents } from '../services/firebaseService';
 import { Calendar, MapPin, Clock, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 interface EventsViewProps {
@@ -9,9 +10,24 @@ interface EventsViewProps {
 }
 
 export const EventsView: React.FC<EventsViewProps> = ({ initialTab = 'upcoming', onNavigate }) => {
+  const [events, setEvents] = useState<AcademicEvent[]>(EVENTS_DATA);
   const [filter, setFilter] = useState<'upcoming' | 'previous' | 'all'>('all');
 
-  const filteredEvents = EVENTS_DATA.filter((e) => {
+  useEffect(() => {
+    fetchEvents()
+      .then((data) => {
+        if (data && data.length > 0) setEvents(data);
+      })
+      .catch(() => {});
+
+    const unsubscribe = subscribeEvents((data) => {
+      if (data && data.length > 0) setEvents(data);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const filteredEvents = events.filter((e) => {
     if (filter === 'upcoming') return e.isUpcoming;
     if (filter === 'previous') return !e.isUpcoming;
     return true;

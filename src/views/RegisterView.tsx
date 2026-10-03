@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { PageId, DARE_ARQAM_CLASSES } from '../types';
 import { Emblem } from '../components/Emblem';
 import { 
@@ -15,10 +15,27 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  Hash
+  Hash,
+  Camera,
+  Upload,
+  X,
+  Sparkles,
+  LogIn,
+  KeyRound,
+  Zap
 } from 'lucide-react';
-import { registerStudentWithFirebase, checkDuplicateRollNumber } from '../services/firebaseService';
+import { 
+  registerStudentWithFirebase, 
+  checkDuplicateRollNumber,
+  createStudentQrIdentity,
+  LOCAL_STORAGE_CURRENT_STUDENT_KEY 
+} from '../services/firebaseService';
+import { uploadToCloudinary } from '../services/cloudinaryService';
 import { useAuth } from '../context/AuthContext';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
+import { StudentProfile } from '../types';
 
 interface RegisterViewProps {
   onNavigate: (page: PageId, authMode?: 'choice' | 'login') => void;
@@ -26,6 +43,7 @@ interface RegisterViewProps {
 
 export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigate }) => {
   const { refreshProfile } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Registration Form State
   const [formData, setFormData] = useState({
@@ -39,15 +57,55 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigate }) => {
     confirmPassword: '',
   });
 
+  // Profile Picture File & Preview
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStep, setSubmissionStep] = useState<string>('');
   const [generalError, setGeneralError] = useState<string | null>(null);
+  const [emailAlreadyInUse, setEmailAlreadyInUse] = useState<boolean>(false);
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrors(prev => ({ ...prev, photo: 'Please select a valid image file (JPG, PNG, WebP).' }));
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setErrors(prev => ({ ...prev, photo: 'Photo size should not exceed 10MB.' }));
+      return;
+    }
+
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next.photo;
+      return next;
+    });
+  };
+
+  const handleRemovePhoto = () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'email') {
+      setEmailAlreadyInUse(false);
+      setGeneralError(null);
+    }
     // Clear field-specific error as user types
     if (errors[name]) {
       setErrors(prev => {
@@ -115,8 +173,29 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigate }) => {
     }
 
     setIsSubmitting(true);
+    let uploadedImageUrl = '';
+    let uploadedPublicId = '';
+
     try {
-      // 1. Create account & structured student record in Firestore
+      // 1. Upload profile photo to Cloudinary if provided
+      if (photoFile) {
+        setSubmissionStep('Uploading profile photo to Cloudinary...');
+        try {
+          const cloudRes = await uploadToCloudinary(photoFile, {
+            folder: 'dare_arqam_students',
+            resourceType: 'image',
+          });
+          if (cloudRes.success && cloudRes.url) {
+            uploadedImageUrl = cloudRes.url;
+            uploadedPublicId = cloudRes.publicId || '';
+          }
+        } catch (photoErr) {
+          console.warn('Cloudinary student photo upload notice:', photoErr);
+        }
+      }
+
+      // 2. Create account & structured student record in Firestore
+      setSubmissionStep('Creating student authentication account...');
       await registerStudentWithFirebase({
         fullName: formData.fullName,
         fatherName: formData.fatherName,
@@ -125,31 +204,88 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigate }) => {
         whatsappNumber: formData.whatsappNumber,
         email: formData.email,
         password: formData.password,
+        profileImageUrl: uploadedImageUrl,
+        profileImagePublicId: uploadedPublicId,
       });
 
-      // 2. Refresh auth profile
+      // 3. Finalize & refresh auth profile
+      setSubmissionStep('Finalizing registration & digital ID card...');
       await refreshProfile();
 
-      // 3. Immediately redirect student to authenticated portal dashboard
+      // 4. Immediately redirect student to authenticated portal dashboard
       onNavigate('student-portal');
     } catch (err: any) {
-      console.error('Registration failed:', err);
-      let message = 'Registration failed. Please check your information.';
+      console.warn('Student registration validation notice:', err?.code || err?.message || err);
+      let message = 'Registration could not be completed. Please check your information.';
       if (err?.code === 'auth/email-already-in-use') {
-        message = 'This email is already registered. Please login or use a different email.';
-        setErrors(prev => ({ ...prev, email: 'Email is already registered' }));
+        // Seamless Recovery: If account was already created, sign in with the password just entered
+        try {
+          setSubmissionStep('Account recognized. Signing in and finalizing student ID card...');
+          const cred = await signInWithEmailAndPassword(auth, formData.email.trim(), formData.password);
+          const currentYear = new Date().getFullYear();
+          const studentId = `DA-${currentYear}-${formData.rollNumber.trim()}`;
+          const qrIdentity = await createStudentQrIdentity(0);
+
+          const studentProfile: StudentProfile = {
+            uid: cred.user.uid,
+            fullName: formData.fullName.trim(),
+            fatherName: formData.fatherName.trim(),
+            className: formData.className,
+            rollNumber: formData.rollNumber.trim(),
+            whatsappNumber: formData.whatsappNumber.trim(),
+            email: cred.user.email || formData.email.trim(),
+            profileImageUrl: uploadedImageUrl,
+            profileImagePublicId: uploadedPublicId,
+            status: 'active',
+            studentId,
+            qrIdentity,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            section: 'Section A',
+            session: `${currentYear}–${currentYear + 1}`,
+          };
+
+          // Save to Firestore (graceful)
+          try {
+            await setDoc(doc(db, 'students', cred.user.uid), studentProfile, { merge: true });
+          } catch {}
+
+          // Save to Server database
+          try {
+            await fetch('/api/students/profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(studentProfile),
+            });
+          } catch {}
+
+          // Cache in local storage
+          try {
+            localStorage.setItem(LOCAL_STORAGE_CURRENT_STUDENT_KEY, JSON.stringify(studentProfile));
+          } catch {}
+
+          await refreshProfile();
+          onNavigate('student-portal');
+          return;
+        } catch (signInErr: any) {
+          console.debug('Auto-signin fallback notice:', signInErr);
+          message = 'This email is already registered. Please login with your password or reset it.';
+          setErrors(prev => ({ ...prev, email: 'Account already exists' }));
+          setEmailAlreadyInUse(true);
+        }
       } else if (err?.code === 'auth/weak-password') {
-        message = 'Password is too weak. Please use at least 6 characters with mixed numbers/letters.';
-        setErrors(prev => ({ ...prev, password: 'Password must be at least 6 characters' }));
+        message = 'Password too weak. Please use at least 6 characters.';
+        setErrors(prev => ({ ...prev, password: 'Minimum 6 characters' }));
       } else if (err?.code === 'auth/invalid-email') {
         message = 'Invalid email address format.';
-        setErrors(prev => ({ ...prev, email: 'Invalid email format' }));
+        setErrors(prev => ({ ...prev, email: 'Invalid format' }));
       } else if (err?.message) {
         message = err.message;
       }
       setGeneralError(message);
     } finally {
       setIsSubmitting(false);
+      setSubmissionStep('');
     }
   };
 
@@ -169,59 +305,176 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigate }) => {
               className="inline-flex items-center gap-1.5 text-xs text-[#20216B] hover:text-[#171852] font-semibold hover:underline cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Portal Home</span>
+              <span>Back</span>
             </button>
 
-            <div className="text-xs text-slate-600">
-              Already have an account?{' '}
+            <div className="text-xs text-slate-600 flex items-center gap-1.5">
+              <span>Registered?</span>
               <button
                 type="button"
                 onClick={() => onNavigate('student-login', 'login')}
-                className="font-bold text-[#20216B] hover:text-[#171852] underline cursor-pointer"
+                className="font-bold text-[#20216B] hover:text-[#171852] underline cursor-pointer inline-flex items-center gap-1"
               >
-                Login
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Login</span>
               </button>
             </div>
           </div>
 
           {/* Header */}
           <div className="text-center space-y-2 pt-4 pb-2">
-            <Emblem size="md" className="mx-auto shadow-md ring-1 ring-[#FFF000]/60" />
+            <Emblem size="md" className="mx-auto shadow-md ring-2 ring-[#FFF000]/70" />
             <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono tracking-widest uppercase bg-[#20216B] text-[#FFF000] border border-[#F5D900]/50 font-bold mb-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono tracking-widest uppercase bg-[#20216B] text-[#FFF000] border border-[#F5D900]/70 font-bold mb-1 shadow-[0_0_15px_rgba(255,240,0,0.55)] ring-1 ring-[#FFF000]/60">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#FFF000]" />
-                <span>OFFICIAL STUDENT ENROLLMENT</span>
+                <span>OFFICIAL ENROLLMENT</span>
               </div>
               <h1 className="font-editorial text-2xl sm:text-3xl font-extrabold text-[#0F1035] tracking-tight">
                 Student Account Registration
               </h1>
               <p className="text-xs text-slate-500 font-prose-serif max-w-md mx-auto">
-                Create your student portal account to generate your digital Student ID Card and access academic records.
+                Create student portal account to generate digital Student ID Card and access academic records.
               </p>
             </div>
           </div>
 
-          {/* General Error Banner */}
-          {generalError && (
+          {/* Email Already Registered Institutional Card with Neon Glow */}
+          {emailAlreadyInUse && (
+            <div className="mt-4 p-4 bg-gradient-to-r from-[#10142A] to-[#171C38] border-2 border-[#FFF000] rounded-2xl text-white shadow-[0_0_20px_rgba(255,240,0,0.35)] relative overflow-hidden animate-in fade-in">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#20216B] border border-[#FFF000]/60 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(255,240,0,0.5)]">
+                  <KeyRound className="w-5 h-5 text-[#FFF000]" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-mono font-extrabold uppercase bg-[#FFF000] text-[#0F1035] shadow-[0_0_8px_rgba(255,240,0,0.7)]">
+                      EXISTS
+                    </span>
+                    <h3 className="font-editorial text-sm font-bold text-white tracking-wide">
+                      Account Already Registered
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-300 font-prose-serif">
+                    An account already exists for <span className="font-bold text-[#FFF000]">{formData.email}</span>. Please login or reset your password.
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('student-login', 'login')}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#20216B] hover:bg-[#171852] text-[#FFF000] text-xs font-bold border border-[#FFF000]/70 shadow-[0_0_14px_rgba(255,240,0,0.5)] inline-flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Login</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('student-login', 'login')}
+                      className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold border border-white/20 inline-flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <KeyRound className="w-3 h-3 text-[#FFF000]" />
+                      <span>Reset</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmailAlreadyInUse(false);
+                        setGeneralError(null);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-transparent hover:bg-white/5 text-slate-400 hover:text-white text-xs inline-flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* General Error Banner (when not email duplicate) */}
+          {generalError && !emailAlreadyInUse && (
             <div className="mt-4 p-3 bg-red-50 border border-red-300 text-red-700 rounded-xl text-xs flex items-start gap-2.5 shadow-2xs">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <p className="font-semibold leading-snug">{generalError}</p>
-                {generalError.includes('already registered') && (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('student-login', 'login')}
-                    className="text-xs font-bold text-[#20216B] underline cursor-pointer block mt-1"
-                  >
-                    Go to Login Page →
-                  </button>
-                )}
               </div>
             </div>
           )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="mt-6 space-y-4.5" noValidate>
+            {/* 0. Student Profile Picture Upload Section */}
+            <div className="p-4 bg-slate-50 border-2 border-dashed border-[#CBD5E1] rounded-2xl flex flex-col sm:flex-row items-center gap-4">
+              <div className="relative group shrink-0">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-white border-2 border-[#20216B] shadow-md flex items-center justify-center relative">
+                  {photoPreview ? (
+                    <img
+                      src={photoPreview}
+                      alt="Student Preview"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-slate-400 p-2 text-center">
+                      <Camera className="w-7 h-7 text-[#20216B]/60 mb-1" />
+                      <span className="text-[9px] font-bold text-[#20216B]/70 uppercase">No Photo</span>
+                    </div>
+                  )}
+                </div>
+                {photoPreview && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="absolute -top-1.5 -right-1.5 p-1 bg-red-600 text-white rounded-full shadow-md hover:bg-red-700 cursor-pointer"
+                    title="Remove photo"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 text-center sm:text-left space-y-2">
+                <div>
+                  <h4 className="text-xs font-bold text-[#0F1035] uppercase tracking-wider flex items-center justify-center sm:justify-start gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#F5D900]" />
+                    <span>Student Profile Picture</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-prose-serif mt-0.5">
+                    Upload a clear passport-style portrait. This photo will be printed directly onto your official Student ID Card.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handlePhotoSelect}
+                    className="hidden"
+                    id="student-photo-upload"
+                  />
+                  <label
+                    htmlFor="student-photo-upload"
+                    className="px-3 py-1.5 rounded-xl bg-[#20216B] hover:bg-[#171852] text-[#FFF000] text-xs font-bold border border-[#F5D900]/40 inline-flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-[#FFF000]" />
+                    <span>{photoFile ? 'Change Photo' : 'Select Photo'}</span>
+                  </label>
+                  {photoFile && (
+                    <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
+                      ✓ {photoFile.name.length > 18 ? `${photoFile.name.substring(0, 15)}...` : photoFile.name}
+                    </span>
+                  )}
+                </div>
+                {errors.photo && (
+                  <p className="text-[11px] text-red-600 font-medium flex items-center gap-1 mt-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    <span>{errors.photo}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* 1. Full Name */}
               <div>
@@ -479,16 +732,17 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigate }) => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3 px-4 bg-[#20216B] hover:bg-[#171852] text-[#FFF000] font-extrabold rounded-xl shadow-lg border border-[#F5D900]/40 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50 text-sm"
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-[#171852] via-[#20216B] to-[#171852] hover:from-[#20216B] hover:to-[#171852] text-[#FFF000] font-extrabold rounded-xl border-2 border-[#FFF000] shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50 text-sm tracking-wide"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-[#FFF000]" />
-                  <span>Registering Student Account...</span>
+                  <span>{submissionStep || 'Processing...'}</span>
                 </>
               ) : (
                 <>
-                  <span>Complete Registration & Generate ID Card</span>
+                  <Sparkles className="w-4 h-4 text-[#FFF000]" />
+                  <span>Register</span>
                   <ArrowRight className="w-4 h-4 text-[#FFF000]" />
                 </>
               )}

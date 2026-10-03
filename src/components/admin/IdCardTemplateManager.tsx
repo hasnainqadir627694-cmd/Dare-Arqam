@@ -8,11 +8,17 @@ import {
 import { 
   getActiveTemplate, 
   getAllTemplates, 
+  subscribeAllTemplates,
   saveTemplate, 
+  saveTemplateAndVerify,
   publishTemplate, 
+  publishTemplateAndVerify,
   deleteTemplate, 
   uploadTemplateImage, 
   normalizeTemplate,
+  verifyIdCardSystemHealth,
+  TemplateSaveResult,
+  IdCardSystemDiagnostic,
   DEFAULT_TEMPLATE,
   DEFAULT_TEMPLATE_SVG_DATA_URL,
   DEFAULT_BACK_TEMPLATE_SVG_DATA_URL,
@@ -203,12 +209,16 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
   const [previewSide, setPreviewSide] = useState<'front' | 'back' | 'both'>('both');
   const [demoStudentIndex, setDemoStudentIndex] = useState(0);
 
-  // Uploading / Saving states
+  // Uploading / Saving / Deleting states
   const [isUploading, setIsUploading] = useState(false);
   const [uploadTargetSide, setUploadTargetSide] = useState<'front' | 'back'>('front');
   const [uploadStageText, setUploadStageText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  // Deletion Confirmation Modal state
+  const [templateToDelete, setTemplateToDelete] = useState<IdCardTemplate | null>(null);
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
 
   // Canvas DOM refs for front dragging & resizing
   const frontCanvasRef = useRef<HTMLDivElement | null>(null);
@@ -255,10 +265,10 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
   const frontFileInputRef = useRef<HTMLInputElement | null>(null);
   const backFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load templates on mount
+  // Load & subscribe to templates on mount
   useEffect(() => {
     let isMounted = true;
-    getAllTemplates().then((list) => {
+    const unsub = subscribeAllTemplates((list) => {
       if (isMounted) {
         setTemplates(list);
         const active = list.find((t) => t.isActive) || list[0] || DEFAULT_TEMPLATE;
@@ -267,6 +277,7 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
     });
     return () => {
       isMounted = false;
+      unsub();
     };
   }, []);
 
@@ -330,56 +341,60 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Diagnostic States
+  const [saveDiagnosticInfo, setSaveDiagnosticInfo] = useState<TemplateSaveResult | null>(null);
+  const [systemHealthDiagnostic, setSystemHealthDiagnostic] = useState<IdCardSystemDiagnostic | null>(null);
+
   // Set as Active template
   const handleSetActive = async (tpl: IdCardTemplate) => {
     try {
-      await publishTemplate(tpl.id);
-      setActiveTemplate({ ...tpl, isActive: true });
-      setTemplates((prev) =>
-        prev.map((t) => ({
-          ...t,
-          isActive: t.id === t.id && t.id === tpl.id,
-        }))
-      );
-      showNotification('success', `"${tpl.name}" is now the active Student ID Card template!`);
+      showNotification('info', `Activating template "${tpl.name}" in Firestore...`);
+      const res = await publishTemplateAndVerify(tpl.id);
+      showNotification('success', `Template "${res.activeName}" is now verified as ACTIVE in Firestore!`);
     } catch (err: any) {
       showNotification('error', `Failed to set active template: ${err.message || err}`);
     }
   };
 
-  // Delete a template
-  const handleDeleteTemplate = async (tpl: IdCardTemplate) => {
+  // Run System Persistence Health Diagnostic
+  const handleRunDiagnostic = async () => {
+    showNotification('info', 'Running live Firestore persistence & template health diagnostic...');
+    try {
+      const result = await verifyIdCardSystemHealth();
+      setSystemHealthDiagnostic(result);
+      showNotification('success', `Diagnostic Complete: ${result.allTemplatesCount} template(s) verified in Firestore.`);
+    } catch (err: any) {
+      showNotification('error', `Diagnostic Error: ${err.message || err}`);
+    }
+  };
+
+  // Prompt template deletion modal
+  const handlePromptDelete = (tpl: IdCardTemplate) => {
     if (tpl.id === DEFAULT_TEMPLATE.id) {
-      showNotification('error', 'The default institutional template cannot be deleted.');
+      showNotification('error', 'The default institutional system template cannot be deleted.');
       return;
     }
-    const confirmed = window.confirm(`Are you sure you want to delete template "${tpl.name}"? This action cannot be undone.`);
-    if (!confirmed) return;
+    setTemplateToDelete(tpl);
+  };
 
+  // Execute confirmed template deletion
+  const executeDeleteTemplate = async () => {
+    if (!templateToDelete) return;
+    setIsDeletingTemplate(true);
     try {
-      await deleteTemplate(tpl.id);
-    } catch (err) {
-      console.warn('Firestore delete notice:', err);
-    }
-
-    // Always update local state and cache immediately
-    setTemplates((prev) => {
-      const filtered = prev.filter((t) => t.id !== tpl.id);
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('dare_arqam_all_id_templates', JSON.stringify(filtered));
-        } catch {}
+      showNotification('info', `Deleting template "${templateToDelete.name}" from Firestore...`);
+      await deleteTemplate(templateToDelete.id);
+      showNotification('success', `Template "${templateToDelete.name}" was permanently deleted.`);
+      if (isEditorOpen && editingTemplate.id === templateToDelete.id) {
+        setIsEditorOpen(false);
       }
-      return filtered;
-    });
-
-    if (activeTemplate.id === tpl.id) {
-      const remaining = templates.filter((t) => t.id !== tpl.id);
-      const nextActive = remaining[0] || DEFAULT_TEMPLATE;
-      setActiveTemplate(nextActive);
+      setTemplateToDelete(null);
+    } catch (err: any) {
+      console.error('Delete template error:', err);
+      showNotification('error', `Delete failed: ${err?.message || err}`);
+    } finally {
+      setIsDeletingTemplate(false);
     }
-
-    showNotification('success', `Template "${tpl.name}" successfully deleted.`);
   };
 
   // Upload Front Side or Back Side Template Image
@@ -399,7 +414,7 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
     try {
       const uploadRes = await uploadTemplateImage(file, (stage) => {
         if (stage === 'uploading') {
-          setUploadStageText(`Uploading ${side} template to Firebase Storage...`);
+          setUploadStageText(`Uploading ${side} template to Cloudinary CDN...`);
         } else if (stage === 'completed') {
           setUploadStageText('Finalizing image canvas...');
         }
@@ -718,36 +733,23 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
       return;
     }
 
-    const shouldPublish = publishAsActive || editingTemplate.isActive || activeTemplate.id === editingTemplate.id || templates.length <= 1;
+    const shouldPublish = publishAsActive;
 
     setIsSaving(true);
     try {
-      const templateId = await saveTemplate(editingTemplate, shouldPublish);
-      const savedTemplate = { ...editingTemplate, id: templateId, isActive: shouldPublish };
-
-      setTemplates((prev) => {
-        let list = prev.map((t) => (shouldPublish ? { ...t, isActive: false } : t));
-        const idx = list.findIndex((t) => t.id === templateId);
-        if (idx >= 0) {
-          list[idx] = savedTemplate;
-        } else {
-          list.push(savedTemplate);
-        }
-        return list;
-      });
-
-      if (shouldPublish) {
-        setActiveTemplate(savedTemplate);
-      }
+      showNotification('info', 'Uploading template media and persisting configuration to Firestore...');
+      
+      const saveResult = await saveTemplateAndVerify(editingTemplate, shouldPublish);
+      setSaveDiagnosticInfo(saveResult);
 
       showNotification(
         'success',
-        `Template "${editingTemplate.name}" saved and instantly synced to student portal!`
+        `Template "${saveResult.templateName}" saved successfully & verified in Firestore!`
       );
       setIsEditorOpen(false);
     } catch (err: any) {
       console.error('Error saving template:', err);
-      showNotification('error', `Failed to save template: ${err.message || err}`);
+      showNotification('error', `Save failed: ${err.message || err}`);
     } finally {
       setIsSaving(false);
     }
@@ -799,6 +801,107 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* Save Diagnostic Verification Card */}
+      {saveDiagnosticInfo && (
+        <div className="p-4 bg-[#0F1426] border-2 border-[#D4AF37] rounded-xl text-white space-y-2.5 font-mono text-xs shadow-2xl animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-[#263352] pb-2">
+            <div className="flex items-center gap-2 text-[#FFF000] font-bold text-sm">
+              <ShieldCheck className="w-4 h-4 text-[#FFF000]" />
+              <span>FIRESTORE READ-BACK PERSISTENCE VERIFIED</span>
+            </div>
+            <button 
+              type="button"
+              onClick={() => setSaveDiagnosticInfo(null)}
+              className="p-1 text-stone-400 hover:text-white text-xs cursor-pointer rounded-md hover:bg-[#20216B]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px] pt-1">
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Template Name:</span>
+              <span className="text-white font-bold">{saveDiagnosticInfo.templateName}</span>
+            </div>
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Firestore Document ID:</span>
+              <span className="text-[#38BDF8] font-bold break-all">{saveDiagnosticInfo.templateId}</span>
+            </div>
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Active Status:</span>
+              <span className={saveDiagnosticInfo.isActive ? 'text-emerald-400 font-bold' : 'text-stone-300'}>
+                {saveDiagnosticInfo.isActive ? 'ACTIVE (Student Portal Synced)' : 'INACTIVE'}
+              </span>
+            </div>
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Read-Back Persistence:</span>
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 inline" />
+                VERIFIED SUCCESS
+              </span>
+            </div>
+          </div>
+          <div className="text-[10px] text-stone-400 border-t border-[#263352]/60 pt-2 flex flex-wrap justify-between gap-2">
+            <span>Front CDN: {saveDiagnosticInfo.frontUrl ? 'Cloudinary Verified' : 'Default Asset'}</span>
+            <span>Back CDN: {saveDiagnosticInfo.backUrl ? 'Cloudinary Verified' : 'Default Asset'}</span>
+            <span>Verified At: {saveDiagnosticInfo.updatedAt}</span>
+          </div>
+        </div>
+      )}
+
+      {/* System Health Diagnostic Card */}
+      {systemHealthDiagnostic && (
+        <div className="p-4 bg-[#0A0D1A] border-2 border-[#38BDF8] rounded-xl text-white space-y-3 font-mono text-xs shadow-2xl animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-[#263352] pb-2">
+            <div className="flex items-center gap-2 text-[#38BDF8] font-bold text-sm">
+              <Sparkles className="w-4 h-4 text-[#38BDF8]" />
+              <span>ID CARD SYSTEM PERSISTENCE & HEALTH DIAGNOSTIC REPORT</span>
+            </div>
+            <button 
+              type="button"
+              onClick={() => setSystemHealthDiagnostic(null)}
+              className="p-1 text-stone-400 hover:text-white text-xs cursor-pointer rounded-md hover:bg-[#20216B]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Firebase Auth SDK:</span>
+              <span className={systemHealthDiagnostic.firebaseInitialized ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                {systemHealthDiagnostic.firebaseInitialized ? 'INITIALIZED' : 'FAILED'}
+              </span>
+            </div>
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Firestore Read/Write:</span>
+              <span className={systemHealthDiagnostic.firestoreConnected ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                {systemHealthDiagnostic.firestoreConnected ? `CONNECTED (${systemHealthDiagnostic.allTemplatesCount} templates)` : 'DISCONNECTED'}
+              </span>
+            </div>
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Active Template ID:</span>
+              <span className="text-[#38BDF8] font-bold break-all">
+                {systemHealthDiagnostic.activeTemplateId || 'None'}
+              </span>
+            </div>
+            <div className="bg-[#14192D] p-2.5 rounded-lg border border-[#243050]">
+              <span className="text-stone-400 block text-[10px]">Media CDNs:</span>
+              <span className="text-amber-300 font-bold">
+                Front: {systemHealthDiagnostic.frontImageValid ? 'OK' : 'MISSING'} · Back: {systemHealthDiagnostic.backImageValid ? 'OK' : 'MISSING'}
+              </span>
+            </div>
+          </div>
+          <div className="bg-[#14192D] p-3 rounded-lg border border-[#243050] space-y-1 text-[10.5px]">
+            <span className="text-[#38BDF8] font-bold block border-b border-[#243050] pb-1">Diagnostic Log Events:</span>
+            {systemHealthDiagnostic.details.map((log, idx) => (
+              <div key={idx} className="text-stone-300 flex items-center gap-1.5">
+                <span className="text-stone-500">•</span>
+                <span>{log}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -873,7 +976,7 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
           {/* Templates Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {templates.map((tpl) => {
-              const isCurrentActive = activeTemplate.id === tpl.id || tpl.isActive;
+              const isCurrentActive = tpl.id === activeTemplate.id;
               const formattedDate = tpl.updatedAt 
                 ? new Date(tpl.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                 : 'Recent';
@@ -997,7 +1100,7 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
                       {tpl.id !== DEFAULT_TEMPLATE.id && (
                         <button
                           type="button"
-                          onClick={() => handleDeleteTemplate(tpl)}
+                          onClick={() => handlePromptDelete(tpl)}
                           className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/60 rounded-lg transition-colors cursor-pointer"
                           title="Delete Template"
                         >
@@ -1108,11 +1211,8 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
               {editingTemplate.id !== DEFAULT_TEMPLATE.id && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    await handleDeleteTemplate(editingTemplate);
-                    setIsEditorOpen(false);
-                  }}
-                  disabled={isSaving}
+                  onClick={() => handlePromptDelete(editingTemplate)}
+                  disabled={isSaving || isDeletingTemplate}
                   className="px-3 py-2 bg-rose-950/80 hover:bg-rose-900 disabled:opacity-50 text-rose-300 text-xs font-mono font-bold rounded-xl border border-rose-700/60 transition-all flex items-center gap-1.5 cursor-pointer"
                   title="Delete Template"
                 >
@@ -2328,6 +2428,81 @@ export const IdCardTemplateManager: React.FC<IdCardTemplateManagerProps> = ({
                   Open in Studio
                 </button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VIEW 4: DELETE CONFIRMATION MODAL */}
+      {/* ========================================================================= */}
+      {templateToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-[#0F1426] border-2 border-rose-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl relative text-white">
+            
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 border-b border-[#1E293B] pb-4">
+              <div className="p-3 rounded-2xl bg-rose-950 text-rose-400 border border-rose-700/80 shadow-md">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-mono text-rose-400 font-bold uppercase tracking-wider block">
+                  PERMANENT DELETION CONFIRMATION
+                </span>
+                <h3 className="font-editorial text-lg font-bold text-white">
+                  Delete Template?
+                </h3>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="space-y-3">
+              <p className="text-sm font-sans text-stone-200 leading-relaxed">
+                Are you sure you want to permanently delete template <strong className="text-[#FFF000] font-mono">{templateToDelete.name}</strong>?
+              </p>
+
+              {(templateToDelete.isActive || activeTemplate.id === templateToDelete.id) && (
+                <div className="p-3.5 rounded-xl bg-amber-950/80 border border-amber-600/60 text-xs font-mono text-amber-200 space-y-1">
+                  <span className="font-bold flex items-center gap-1.5 text-amber-400 text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-400" />
+                    <span>Currently Active Template Notice</span>
+                  </span>
+                  <p className="text-[11px] text-amber-100/90 leading-relaxed">
+                    This card is currently ACTIVE for all students. Deleting it will automatically reset the active card back to the Default Institutional Template.
+                  </p>
+                </div>
+              )}
+
+              <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/50 text-[11px] font-mono text-rose-300">
+                ⚠️ This document will be permanently deleted from Firestore and cannot be recovered.
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#1E293B]">
+              <button
+                type="button"
+                onClick={() => setTemplateToDelete(null)}
+                disabled={isDeletingTemplate}
+                className="px-4 py-2 bg-[#171D36] hover:bg-[#20274A] disabled:opacity-50 text-slate-300 text-xs font-mono font-bold rounded-xl border border-[#2B385C] transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={executeDeleteTemplate}
+                disabled={isDeletingTemplate}
+                className="px-5 py-2 bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white text-xs font-mono font-bold rounded-xl border border-rose-500 shadow-lg flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+              >
+                {isDeletingTemplate ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <Trash2 className="w-4 h-4 text-white" />
+                )}
+                <span>{isDeletingTemplate ? 'Deleting...' : 'Yes, Delete Template'}</span>
+              </button>
             </div>
 
           </div>

@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
-import { PageId } from '../types';
+import React, { useState, useEffect } from 'react';
+import { PageId, DocumentDownload } from '../types';
 import { ACADEMIC_CALENDAR_DATA, DOWNLOADS_DATA } from '../data/mockData';
+import { 
+  fetchAcademicCalendar, 
+  subscribeAcademicCalendar, 
+  fetchDocuments, 
+  subscribeDocuments 
+} from '../services/firebaseService';
 import { 
   BookOpen, 
   Calendar, 
@@ -23,6 +29,37 @@ export const AcademicsView: React.FC<AcademicsViewProps> = ({
   onNavigate,
 }) => {
   const [activeTab, setActiveTab] = useState<'programs' | 'classes' | 'calendar' | 'examination' | 'syllabus'>(initialTab);
+  const [calendarEvents, setCalendarEvents] = useState<any[]>(ACADEMIC_CALENDAR_DATA);
+  const [academicDocs, setAcademicDocs] = useState<DocumentDownload[]>(() =>
+    DOWNLOADS_DATA.filter((d) => d.category === 'Academic')
+  );
+
+  useEffect(() => {
+    fetchAcademicCalendar().then((data) => {
+      if (data && data.length > 0) setCalendarEvents(data);
+    }).catch(() => {});
+
+    const unsubCal = subscribeAcademicCalendar((data) => {
+      if (data && data.length > 0) setCalendarEvents(data);
+    });
+
+    fetchDocuments().then((docs) => {
+      if (docs && docs.length > 0) {
+        setAcademicDocs(docs.filter((d) => d.category === 'Academic'));
+      }
+    }).catch(() => {});
+
+    const unsubDocs = subscribeDocuments((docs) => {
+      if (docs && docs.length > 0) {
+        setAcademicDocs(docs.filter((d) => d.category === 'Academic'));
+      }
+    });
+
+    return () => {
+      unsubCal();
+      unsubDocs();
+    };
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
@@ -242,7 +279,7 @@ export const AcademicsView: React.FC<AcademicsViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {ACADEMIC_CALENDAR_DATA.map((item, idx) => (
+            {calendarEvents.map((item, idx) => (
               <div key={idx} className="p-4 bg-[#F8FAFC] border border-[#CBD5E1] rounded-md space-y-1.5">
                 <div className="text-xs font-mono font-bold text-[#20216B] uppercase">
                   {item.month}
@@ -352,7 +389,7 @@ export const AcademicsView: React.FC<AcademicsViewProps> = ({
           </div>
 
           <div className="divide-y divide-stone-200">
-            {DOWNLOADS_DATA.filter(d => d.category === 'Academic').map(doc => (
+            {academicDocs.map(doc => (
               <div key={doc.id} className="py-3.5 flex items-center justify-between gap-4">
                 <div>
                   <div className="text-xs sm:text-sm font-semibold text-[#0F1035]">{doc.title}</div>

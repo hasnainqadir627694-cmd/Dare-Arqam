@@ -19,7 +19,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           {/* Column 1: Institution Identity */}
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <Emblem size="md" />
+              <Emblem size="md" neonGlow className="!w-12 !h-12 drop-shadow-md" />
               <div>
                 <div className="font-editorial text-xl font-bold tracking-tight text-white">
                   DAR - E - ARQAM
@@ -31,7 +31,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </div>
 
             <p className="text-xs text-white/80 leading-relaxed font-prose-serif">
-              DAR - E - ARQAM is a recognized institutional school system dedicated to academic rigor, moral character development, and scientific excellence in Pakistan.
+              Synthesizing Islamic character, scientific inquiry, and academic excellence in Katlang.
             </p>
 
             <div className="pt-2 text-xs text-white/80 space-y-1">
@@ -48,22 +48,22 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           {/* Column 2: Quick Links */}
           <div>
             <h3 className="font-editorial text-sm font-bold text-white tracking-wider uppercase mb-4 pb-2 border-b border-[#F5D900]/30 flex items-center justify-between">
-              <span>Institution Navigation</span>
+              <span>Navigation</span>
               <span className="w-2 h-2 rounded-full bg-[#FFF000]" />
             </h3>
             <ul className="space-y-2 text-xs">
               <li>
                 <button
                   onClick={() => onNavigate('about')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  About DAR - E - ARQAM
+                  About School
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('principal-message')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
                   Principal's Message
                 </button>
@@ -71,33 +71,33 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               <li>
                 <button
                   onClick={() => onNavigate('vision-mission')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Vision, Mission & Core Values
+                  Vision & Mission
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('administration')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Administration & Governance
+                  Governance
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('faculty')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Faculty & Academic Heads
+                  Faculty Directory
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('academic-calendar')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Annual Academic Calendar
+                  Academic Calendar
                 </button>
               </li>
             </ul>
@@ -106,56 +106,56 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           {/* Column 3: Student & Parent Services */}
           <div>
             <h3 className="font-editorial text-sm font-bold text-white tracking-wider uppercase mb-4 pb-2 border-b border-[#F5D900]/30 flex items-center justify-between">
-              <span>Academic & Admissions</span>
+              <span>Services</span>
               <span className="w-2 h-2 rounded-full bg-[#FFF000]" />
             </h3>
             <ul className="space-y-2 text-xs">
               <li>
                 <button
                   onClick={() => onNavigate('admission-info')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Admissions Guidelines (2026–27)
+                  Admissions Guidelines
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('fee-structure')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Official Fee Structure
+                  Fee Structure
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('results')}
-                  className="hover:text-white transition-colors text-left text-[#FFF000] font-bold"
+                  className="hover:text-white transition-colors text-left text-[#FFF000] font-bold cursor-pointer"
                 >
-                  Online Examination Results
+                  Online Results
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('notices')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Latest Notices & Circulars
+                  Circulars & Notices
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('downloads')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer"
                 >
-                  Download Forms & Documents
+                  Downloads & Forms
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('student-login')}
-                  className="hover:text-[#FFF000] transition-colors text-left text-white/85"
+                  className="hover:text-[#FFF000] transition-colors text-left text-white/85 cursor-pointer font-semibold"
                 >
-                  Student Portal Login
+                  Student Portal
                 </button>
               </li>
             </ul>
@@ -164,7 +164,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           {/* Column 4: Official Contact & Timings */}
           <div>
             <h3 className="font-editorial text-sm font-bold text-white tracking-wider uppercase mb-4 pb-2 border-b border-[#F5D900]/30 flex items-center justify-between">
-              <span>Official Contact</span>
+              <span>Contact</span>
               <span className="w-2 h-2 rounded-full bg-[#FFF000]" />
             </h3>
             <div className="space-y-2.5 text-xs text-white/85">

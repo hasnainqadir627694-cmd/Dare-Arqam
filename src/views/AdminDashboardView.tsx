@@ -80,6 +80,7 @@ import {
   revertWebsiteLogoToDefault,
   useWebsiteLogo 
 } from '../services/brandingManager';
+import { runFirestoreBackendHealthTest, BackendHealthResult } from '../services/backendHealthTest';
 
 interface AdminDashboardViewProps {
   onNavigate: (page: PageId) => void;
@@ -115,6 +116,37 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
   const [tabHistory, setTabHistory] = useState<AdminTab[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [adminUser, setAdminUser] = useState(() => getCurrentAdminSession());
+
+  // Real Firestore Cloud Health Test State
+  const [healthResult, setHealthResult] = useState<BackendHealthResult | null>(null);
+  const [isTestingHealth, setIsTestingHealth] = useState(false);
+
+  const handleRunHealthTest = async () => {
+    setIsTestingHealth(true);
+    try {
+      const res = await runFirestoreBackendHealthTest();
+      setHealthResult(res);
+    } catch (err: any) {
+      setHealthResult({
+        success: false,
+        error: err?.message || String(err),
+        errorCode: err?.code || 'unknown',
+        path: 'system/backendHealth',
+        projectId: 'dare-arqam-a9d8e',
+        appId: '',
+        timestamp: new Date().toISOString(),
+      });
+    } finally {
+      setIsTestingHealth(false);
+    }
+  };
+
+  // Run health test on initial overview tab load
+  useEffect(() => {
+    if (currentTab === 'overview' && !healthResult && !isTestingHealth) {
+      handleRunHealthTest();
+    }
+  }, [currentTab]);
 
   const navigateToTab = (newTab: AdminTab) => {
     if (newTab === currentTab) return;
@@ -883,8 +915,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
     }
   };
 
-  const handleAdminLogout = () => {
-    logoutAdminSession();
+  const handleAdminLogout = async () => {
+    await logoutAdminSession();
     onLogout();
     onNavigate('home');
   };
@@ -1009,6 +1041,84 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Live Firestore Cloud Database Health & Diagnostics Card */}
+            <div className={`border rounded-2xl p-5 sm:p-6 transition-all shadow-xl ${
+              healthResult?.success
+                ? 'bg-emerald-950/40 border-emerald-500/60'
+                : healthResult?.error
+                ? 'bg-red-950/40 border-red-500/60'
+                : 'bg-[#12172B] border-[#263354]'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${
+                      healthResult?.success
+                        ? 'bg-emerald-400 animate-pulse ring-4 ring-emerald-500/30'
+                        : healthResult?.error
+                        ? 'bg-red-500 ring-4 ring-red-500/30'
+                        : 'bg-amber-400 ring-4 ring-amber-400/30'
+                    }`} />
+                    <h3 className="font-editorial text-base sm:text-lg font-bold text-white tracking-tight">
+                      Firestore Cloud Database Status
+                    </h3>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase border ${
+                      healthResult?.success
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                        : healthResult?.error
+                        ? 'bg-red-500/20 text-red-300 border-red-400/40'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-400/40'
+                    }`}>
+                      {healthResult?.success ? 'Connected' : healthResult?.error ? 'Permission Denied' : 'Pending Verification'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-300 font-mono mt-1.5">
+                    Health Target: <strong className="text-[#FFF000]">system/backendHealth</strong> · Project: <span className="text-white font-bold">dare-arqam-a9d8e</span> · Database: <span className="text-white font-bold">(default)</span>
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRunHealthTest}
+                  disabled={isTestingHealth}
+                  className="px-4 py-2.5 text-xs font-extrabold text-[#171852] bg-[#FFF000] hover:bg-[#F5D900] border-2 border-[#F5D900] rounded-xl transition-all shadow-[0_0_15px_rgba(255,240,0,0.4)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shrink-0"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isTestingHealth ? 'animate-spin' : ''}`} />
+                  <span>{isTestingHealth ? 'Testing Firestore Cloud Write...' : 'Test Backend Health Now'}</span>
+                </button>
+              </div>
+
+              {healthResult && (
+                <div className="mt-4 pt-4 border-t border-white/10 text-xs font-mono space-y-2">
+                  {healthResult.success ? (
+                    <div className="p-3.5 bg-emerald-900/40 border border-emerald-400/50 rounded-xl text-emerald-200 space-y-1.5">
+                      <div className="font-bold flex items-center gap-2 text-sm text-emerald-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Cloud Firestore Verified: Document system/backendHealth Active!</span>
+                      </div>
+                      <p className="text-xs text-emerald-300">
+                        Real setDoc() with serverTimestamp() and readback verified on project <strong>{healthResult.projectId}</strong>.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-red-900/40 border border-red-500/60 rounded-xl text-red-200 space-y-2.5">
+                      <div className="font-bold flex items-center gap-2 text-sm text-red-300">
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                        <span>Real Firestore Write Failed ({healthResult.errorCode}): {healthResult.error}</span>
+                      </div>
+                      <div className="bg-black/60 p-3.5 rounded-xl text-xs text-stone-200 font-mono space-y-1.5 border border-red-500/30">
+                        <p className="font-bold text-[#FFF000] text-xs">⚠️ Root Cause: Security Rules on Firebase Console are currently blocking writes.</p>
+                        <p className="text-stone-300">To enable persistent writes for student registrations and admin settings:</p>
+                        <p>1. Open <a href="https://console.firebase.google.com/project/dare-arqam-a9d8e/firestore/rules" target="_blank" rel="noreferrer" className="underline text-amber-300 font-bold hover:text-white">Firebase Console → Firestore Database → Rules</a></p>
+                        <p>2. Copy and paste the rules from <code className="text-cyan-300 font-bold">firestore.rules</code> (which enables <code className="text-emerald-300">match /system/&#123;docId&#125; &#123; allow read, write: if true; &#125;</code>)</p>
+                        <p>3. Click <strong>Publish</strong>. Then re-click <strong>"Test Backend Health Now"</strong> above to see it turn green!</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Quick Metrics Cards */}
